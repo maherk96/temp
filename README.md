@@ -1,7 +1,16 @@
 # temp
 
-```
-private static final String UUID_STRING = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+```java
+task runTradeServiceTests(type: Test) {
+    useJUnitPlatform()
 
+    systemProperty "launchID", "AlgoFusionBookingRegression"
+    systemProperty "qap.regression", true
 
+    include '**/TradeServiceTest.class'
+    include '**/TradeServiceTest_1.class'
+    include '**/TradeServiceTest_2.class'
+
+    maxParallelForks = 1
+}
 ```
