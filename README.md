@@ -1,9 +1,14 @@
-```sql
-SELECT tr.*, t.METHOD_NAME, tc.NAME AS CLASS_NAME
-FROM TEST_RUN tr
-JOIN TEST t ON tr.TEST_ID = t.ID
-JOIN TEST_CLASS tc ON t.TEST_CLASS_ID = tc.ID
-WHERE tr.TEST_LAUNCH_ID = 12345
-  AND tc.ID = 67890
-ORDER BY t.METHOD_NAME;
+```java
+@Query("""
+  SELECT tr FROM TestRun tr
+  JOIN tr.test t
+  JOIN t.testClass tc
+  WHERE tr.testLaunch.id = :launchId
+    AND tc.id = :classId
+  ORDER BY t.methodName
+""")
+List<TestRun> findByLaunchIdAndClassId(
+    @Param("launchId") Long launchId,
+    @Param("classId") Long classId
+);
 ```
