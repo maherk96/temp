@@ -1,62 +1,39 @@
 ```java
 import lombok.Data;
+import java.util.List;
 
 @Data
-public class Header {
-    private String cliVer;
-    private String hostname;
-    private String pid;
-    private String msgType;
+public class CreditCheckRequest {
+
+    private List<Deal> deals;
+
     private String product;
-    private String userId;
-    private String baseNum;
+    private String baseNumber;
     private String bvShortName;
-    private String requestType;
-    private String earmarkType;
-    private String sourceSystem;
-    private boolean fastRequest;
-    private String correlationId;
-}
-
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import lombok.Data;
-
-@Data
-public class CreditCheckResponse {
-
-    private String sessionName;
-
-    @JsonDeserialize(using = NestedJsonStringDeserializer.class)
-    private Header header;
-
-    private boolean checkOk;
-    private String exception;
-    private String exceptionType;
-    private String product;
     private String facilityId;
     private String gfcid;
+    private String k1Number;
+    private String sourceSystem;
+    private String earmarkType;
+    private String requestType;
+    private String tradeDate;
+    private String productDeliveryType;
     private String messageType;
 
-    // Add other fields as needed.
-}
+    @Data
+    public static class Deal {
+        private boolean isNdf;
+        private String valueDate;
+        private String referenceNumber;
+        private String originalReferenceNumber;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.DeserializationContext;
-import com.fasterxml.jackson.databind.JsonDeserializer;
-import com.fasterxml.jackson.databind.ObjectMapper;
+        private String boughtCurrency;
+        private String soldCurrency;
 
-import java.io.IOException;
-
-public class NestedJsonStringDeserializer extends JsonDeserializer<Header> {
-
-    private static final ObjectMapper mapper = new ObjectMapper();
-
-    @Override
-    public Header deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-        String jsonString = p.getValueAsString();
-        return mapper.readValue(jsonString, Header.class);
+        private double boughtAmount;
+        private double soldAmount;
+        private double usDollarAmt;
     }
 }
-
 
 ```
