@@ -1,36 +1,46 @@
 ```java
-import java.util.concurrent.ThreadLocalRandom;
+public class CreditCheckClientConnection {
 
-public class CustomIdGenerator {
+    private final String srcSystem;
+    private final String configFile;
+    private final String primingAccn;
 
-    // Hardcoded parts
-    private static final String PREFIX = "DQE";
-    private static final String MIDDLE = "Q";
-    private static final String SUFFIX = "E";
+    private CreditCheckClient creditCheckClient;
+    private CreditCheckClientSession session;
 
-    /**
-     * Generates an ID like DQE00284Q2000E006
-     *
-     * @return formatted ID string
-     */
-    public static String generate() {
-        int firstNumber = ThreadLocalRandom.current().nextInt(0, 100000); // 5 digits
-        int secondNumber = ThreadLocalRandom.current().nextInt(0, 10000); // 4 digits
-        int thirdNumber = ThreadLocalRandom.current().nextInt(0, 1000);   // 3 digits
+    public CreditCheckClientConnection(String srcSystem, String configFile, String primingAccn) {
+        this.srcSystem = srcSystem;
+        this.configFile = configFile;
+        this.primingAccn = primingAccn;
 
-        return String.format("%s%05d%s%04d%s%03d",
-                PREFIX,
-                firstNumber,
-                MIDDLE,
-                secondNumber,
-                SUFFIX,
-                thirdNumber
-        );
+        init();
     }
 
-    public static void main(String[] args) {
-        String id = CustomIdGenerator.generate();
-        System.out.println("Generated ID: " + id);
+    private void init() {
+        try {
+            this.creditCheckClient = CreditCheckClientFactory.getInstance(configFile);
+            this.creditCheckClient.start();
+            this.session = this.creditCheckClient.createSession();
+            // TODO: prime session with primingAccn if needed
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to init CreditCheckClient", e);
+        }
+    }
+
+    public boolean isConnected() {
+        return creditCheckClient != null && session != null;
+    }
+
+    public void retry() {
+        if (creditCheckClient != null) {
+            creditCheckClient.stop();
+            this.session = creditCheckClient.createSession();
+        }
+    }
+
+    public CreditCheckResponse send(FxCreditCheckRequest request) {
+        String requestId = session.sendCreditCheckRequest(request);
+        return session.receiveCreditCheckResponse(requestId);
     }
 }
 ```
