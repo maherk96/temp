@@ -1,68 +1,81 @@
 ```java
-@SpringBootTest
-@ActiveProfiles("test")
-@Transactional
-class ApplicationServiceTest {
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
-    @Autowired
-    private ApplicationService applicationService;
+import java.util.List;
+import java.util.Map;
 
-    @Autowired
-    private ApplicationRepository applicationRepository;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-    @Autowired
-    private ApplicationMapper applicationMapper;
+class QAPQueryServiceTest {
 
-    @Test
-    void findAll() {
-        Application app1 = new Application();
-        app1.setName("App1");
+    @Mock
+    private DatabaseQueryExecutor queryExecutor;
 
-        Application app2 = new Application();
-        app2.setName("App2");
+    @Mock
+    private RowMapper<String> rowMapper;
 
-        applicationRepository.saveAll(List.of(app1, app2));
+    private QAPQueryService queryService;
 
-        List<ApplicationDTO> results = applicationService.findAll();
-        assertEquals(2, results.size());
+    private final Map<String, String> queries = Map.of(
+        "TestQuery", "SELECT * FROM test_table WHERE col = ?"
+    );
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+        queryService = new QAPQueryService(queryExecutor, queries);
     }
 
     @Test
-    void get() {
-        Application app = new Application();
-        app.setName("GetApp");
-        Application saved = applicationRepository.save(app);
+    void shouldExecuteQueryAndReturnList() {
+        List<String> expected = List.of("A", "B");
+        when(queryExecutor.executeQuery(anyString(), any(), any())).thenReturn(expected);
 
-        ApplicationDTO dto = applicationService.get(saved.getId());
+        List<String> result = queryService.executeQuery("TestQuery", rowMapper, "someParam");
 
-        assertNotNull(dto);
-        assertEquals(saved.getId(), dto.getId());
-        assertEquals("GetApp", dto.getName());
+        assertEquals(expected, result);
+        verify(queryExecutor).executeQuery(eq("SELECT * FROM test_table WHERE col = ?"), eq(rowMapper), eq("someParam"));
     }
 
     @Test
-    void findByID() {
-        Application app = new Application();
-        app.setName("FindApp");
-        Application saved = applicationRepository.save(app);
+    void shouldThrowIfQueryNotFound_executeQuery() {
+        Exception ex = assertThrows(IllegalArgumentException.class, () ->
+            queryService.executeQuery("UnknownQuery", rowMapper));
 
-        Application found = applicationService.findByID(saved.getId());
-
-        assertNotNull(found);
-        assertEquals(saved.getId(), found.getId());
-        assertEquals("FindApp", found.getName());
+        assertEquals("Query not found: UnknownQuery", ex.getMessage());
     }
 
     @Test
-    void create() {
-        ApplicationDTO dto = new ApplicationDTO();
-        dto.setName("CreateApp");
+    void shouldRunSingleResultQueryAndReturnFirstItem() {
+        when(queryExecutor.executeQuery(anyString(), any(), any()))
+            .thenReturn(List.of("OnlyResult"));
 
-        Long id = applicationService.create(dto);
+        String result = queryService.runSingleResultQuery("TestQuery", rowMapper, "id");
 
-        assertNotNull(id);
-        Application saved = applicationRepository.findById(id).orElseThrow();
-        assertEquals("CreateApp", saved.getName());
+        assertEquals("OnlyResult", result);
+    }
+
+    @Test
+    void shouldThrowIfQueryNotFound_runSingleResultQuery() {
+        Exception ex = assertThrows(IllegalArgumentException.class, () ->
+            queryService.runSingleResultQuery("InvalidQuery", rowMapper));
+
+        assertEquals("Query not found: InvalidQuery", ex.getMessage());
+    }
+
+    @Test
+    void shouldThrowIfResultIsEmpty_runSingleResultQuery() {
+        when(queryExecutor.executeQuery(anyString(), any(), any()))
+            .thenReturn(List.of());
+
+        // This will throw IndexOutOfBoundsException (from .get(0)), which is expected
+        assertThrows(IndexOutOfBoundsException.class, () ->
+            queryService.runSingleResultQuery("TestQuery", rowMapper));
     }
 }
 
