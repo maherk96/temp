@@ -1,55 +1,52 @@
 ```java
 private void executeClosedModel() throws InterruptedException {
-    var users = loadProfile.getUsers();
-    var rampUp = getDurationMs(loadProfile.getRampUp());
-    var holdFor = getDurationMs(loadProfile.getHoldFor());
-    var warmup = loadProfile.getWarmup() != null ? getDurationMs(loadProfile.getWarmup()) : 0;
-    var iterations = loadProfile.getIterations();
+    int users = loadProfile.getUsers();
+    long rampUp = getDurationMs(loadProfile.getRampUp());
+    long holdFor = getDurationMs(loadProfile.getHoldFor());
+    long warmup = loadProfile.getWarmup() != null ? getDurationMs(loadProfile.getWarmup()) : 0;
+    int iterations = loadProfile.getIterations();
 
-    System.out.println(
-        "Executing closed model with users: " + users +
-        ", rampUp: " + rampUp + "ms, holdFor: " + holdFor +
-        "ms, warmup: " + warmup + "ms, iterations: " + iterations
+    System.out.printf(
+        "Executing closed model with users=%d, rampUp=%dms, holdFor=%dms, warmup=%dms, iterations=%d%n",
+        users, rampUp, holdFor, warmup, iterations
     );
 
-    var executor = Executors.newFixedThreadPool(users);
+    // pool = one thread per "virtual user"
+    ExecutorService executor = Executors.newFixedThreadPool(users);
     runningExecutors.put(executionId, executor);
 
-    // latch counts *all* iterations across all users
-    var latch = new CountDownLatch(users * iterations);
+    // flag for stopping when holdFor expires
+    AtomicBoolean cancelled = runningFlags.get(executionId);
 
-    // Optional warmup delay before test starts
+    // Optional warmup delay before starting
     Thread.sleep(warmup);
 
-    var rampUpDelay = rampUp / users;
+    long rampUpDelay = rampUp / users;
 
     for (int i = 0; i < users; i++) {
-        var userId = i;
+        int userId = i;
         executor.submit(() -> {
             try {
-                // stagger user start
-                Thread.sleep(rampUpDelay);
-
+                Thread.sleep(rampUpDelay * userId); // stagger users
                 for (int j = 0; j < iterations; j++) {
-                    if (runningFlags.get(executionId).get()) {
+                    if (cancelled.get()) {
                         break; // execution cancelled
                     }
                     executeRequest(userId);
-                    latch.countDown(); // decrement once per iteration
                 }
-
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread().interrupt(); // thread was killed
             }
         });
     }
 
-    // Wait for either all iterations or until holdFor time expires
-    latch.await(holdFor, TimeUnit.MILLISECONDS);
-
-    if (!executor.isShutdown()) {
-        executor.shutdown();
+    // Wait for holdFor period, then cancel remaining tasks
+    if (!executor.awaitTermination(holdFor, TimeUnit.MILLISECONDS)) {
+        System.out.println("HoldFor expired, forcing shutdown...");
+        cancelled.set(true);
+        executor.shutdownNow(); // kill tasks immediately
     }
+
     runningExecutors.remove(executionId);
 }
 ```
