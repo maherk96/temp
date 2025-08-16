@@ -11,40 +11,44 @@ private void executeClosedModel() throws InterruptedException {
         users, rampUp, holdFor, warmup, iterations
     );
 
-    // pool = one thread per "virtual user"
     ExecutorService executor = Executors.newFixedThreadPool(users);
     runningExecutors.put(executionId, executor);
 
-    // flag for stopping when holdFor expires
     AtomicBoolean cancelled = runningFlags.get(executionId);
 
-    // Optional warmup delay before starting
-    Thread.sleep(warmup);
+    Thread.sleep(warmup); // optional warmup before users start
 
-    long rampUpDelay = rampUp / users;
+    long rampUpDelay = users > 0 ? rampUp / users : 0;
 
     for (int i = 0; i < users; i++) {
         int userId = i;
         executor.submit(() -> {
             try {
-                Thread.sleep(rampUpDelay * userId); // stagger users
+                Thread.sleep(rampUpDelay * userId); // stagger start
                 for (int j = 0; j < iterations; j++) {
                     if (cancelled.get()) {
-                        break; // execution cancelled
+                        break;
                     }
                     executeRequest(userId);
                 }
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // thread was killed
+                Thread.currentThread().interrupt();
             }
         });
     }
 
-    // Wait for holdFor period, then cancel remaining tasks
-    if (!executor.awaitTermination(holdFor, TimeUnit.MILLISECONDS)) {
+    // 🔑 mark executor as "done submitting"
+    executor.shutdown();
+
+    // 🔑 wait up to holdFor
+    boolean finished = executor.awaitTermination(holdFor, TimeUnit.MILLISECONDS);
+
+    if (!finished) {
         System.out.println("HoldFor expired, forcing shutdown...");
         cancelled.set(true);
-        executor.shutdownNow(); // kill tasks immediately
+        executor.shutdownNow();
+    } else {
+        System.out.println("All tasks completed before holdFor expired.");
     }
 
     runningExecutors.remove(executionId);
