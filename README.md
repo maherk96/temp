@@ -1,56 +1,59 @@
 ```java
-private void executeClosedModel() throws InterruptedException {
-    int users = loadProfile.getUsers();
-    long rampUp = getDurationMs(loadProfile.getRampUp());
-    long holdFor = getDurationMs(loadProfile.getHoldFor());
-    long warmup = loadProfile.getWarmup() != null ? getDurationMs(loadProfile.getWarmup()) : 0;
-    int iterations = loadProfile.getIterations();
+private void executeOpenModel() throws InterruptedException {
+    int arrivalRatePerSec = profile.getArrivalRatePerSec(); // requests per second
+    int maxConcurrent = profile.getMaxConcurrent();         // max concurrent requests
+    int durationMs = parseDurationToMs(profile.getDuration());
+    int warmupMs = parseDurationToMs(profile.getWarmup());
 
-    System.out.printf(
-        "Executing closed model with users=%d, rampUp=%dms, holdFor=%dms, warmup=%dms, iterations=%d%n",
-        users, rampUp, holdFor, warmup, iterations
-    );
-
-    ExecutorService executor = Executors.newFixedThreadPool(users);
+    ExecutorService executor = Executors.newCachedThreadPool();
     runningExecutors.put(executionId, executor);
 
-    AtomicBoolean cancelled = runningFlags.get(executionId);
+    Semaphore semaphore = new Semaphore(maxConcurrent);
+    long endTime = System.currentTimeMillis() + durationMs;
 
-    Thread.sleep(warmup); // optional warmup before users start
+    System.out.println("Executing open model with arrivalRate=" + arrivalRatePerSec
+            + " req/s, maxConcurrent=" + maxConcurrent
+            + ", duration=" + durationMs + "ms, warmup=" + warmupMs + "ms");
 
-    long rampUpDelay = users > 0 ? rampUp / users : 0;
+    // Warmup phase
+    Thread.sleep(warmupMs);
 
-    for (int i = 0; i < users; i++) {
-        int userId = i;
-        executor.submit(() -> {
-            try {
-                Thread.sleep(rampUpDelay * userId); // stagger start
-                for (int j = 0; j < iterations; j++) {
-                    if (cancelled.get()) {
-                        break;
-                    }
-                    executeRequest(userId);
+    try {
+        while (System.currentTimeMillis() < endTime && !cancellationFlags.get(executionId).get()) {
+            // Submit requests at the defined arrival rate
+            for (int i = 0; i < arrivalRatePerSec; i++) {
+                if (cancellationFlags.get(executionId).get() || System.currentTimeMillis() >= endTime) {
+                    break;
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+
+                semaphore.acquire(); // ensure we don’t exceed maxConcurrent
+
+                int userId = i; // simple user id
+                executor.submit(() -> {
+                    try {
+                        if (cancellationFlags.get(executionId).get()) {
+                            return;
+                        }
+                        executeRequests(userId);       // your actual request logic
+                        Thread.sleep(getThinkTimeMs()); // think time between requests
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        semaphore.release(); // free a permit
+                    }
+                });
             }
-        });
+
+            Thread.sleep(1000); // pace the loop to 1-second chunks
+        }
+    } finally {
+        // Shutdown executor gracefully
+        executor.shutdown();
+        if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+            executor.shutdownNow();
+        }
+        runningExecutors.remove(executionId);
+        System.out.println("Execution ended for open model.");
     }
-
-    // 🔑 mark executor as "done submitting"
-    executor.shutdown();
-
-    // 🔑 wait up to holdFor
-    boolean finished = executor.awaitTermination(holdFor, TimeUnit.MILLISECONDS);
-
-    if (!finished) {
-        System.out.println("HoldFor expired, forcing shutdown...");
-        cancelled.set(true);
-        executor.shutdownNow();
-    } else {
-        System.out.println("All tasks completed before holdFor expired.");
-    }
-
-    runningExecutors.remove(executionId);
 }
 ```
