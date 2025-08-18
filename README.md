@@ -14,33 +14,49 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
     runningExecutors.put(executionId, executor);
     AtomicBoolean cancelled = runningFlags.get(executionId);
     
+    // Track active tasks
+    AtomicInteger activeTasks = new AtomicInteger(0);
+    
     try {
         Thread.sleep(warmup);
         long rampUpDelay = users > 0 ? rampUp / users : 0;
         
         for (int i = 0; i < users; i++) {
-            if (isCancelled() || metricsCollector.getIsRunning().get()) {
+            if (isCancelled()) {
                 logger.warn("Execution {} cancelled before starting user {}", executionId, i);
                 break;
             }
             
+            // Check SLA breach BEFORE starting tasks - false means breach
+            if (!metricsCollector.getIsRunning().get()) {
+                logger.warn("Execution {} stopping early due to SLA breach", executionId);
+                break;
+            }
+            
             final int userId = i;
-            executor.submit(() -> runUserClosedLoad(userId, iterations, rampUpDelay, cancelled));
+            activeTasks.incrementAndGet();
+            executor.submit(() -> {
+                try {
+                    runUserClosedLoad(userId, iterations, rampUpDelay, cancelled);
+                } finally {
+                    activeTasks.decrementAndGet();
+                }
+            });
         }
         
         long startTime = System.currentTimeMillis();
         long endTime = startTime + holdFor;
         
         while (System.currentTimeMillis() < endTime) {
-            // Check if SLA is breached - terminate immediately
-            if (metricsCollector.getIsRunning().get()) {
+            // Check if SLA is breached - false means breach, terminate immediately
+            if (!metricsCollector.getIsRunning().get()) {
                 logger.warn("Execution {} stopping early due to SLA breach", executionId);
                 executor.shutdownNow();
                 break;
             }
             
             // Check if all tasks are completed - can terminate early
-            if (executor.isTerminated()) {
+            if (activeTasks.get() == 0) {
                 logger.info("Execution {} completed as all tasks finished", executionId);
                 break;
             }
@@ -49,8 +65,8 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
             Thread.sleep(100);
         }
         
-        // If we're here and executor is not terminated, holdFor time has passed
-        if (!executor.isTerminated()) {
+        // If we're here and still have active tasks, holdFor time has passed
+        if (activeTasks.get() > 0) {
             logger.warn("Execution {} timed out after {}ms", executionId, holdFor);
             cancelled.set(true);
             executor.shutdownNow();
@@ -68,6 +84,5 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
     }
     
     return generateReport();
-}
 }
 ```
