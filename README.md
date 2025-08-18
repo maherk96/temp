@@ -3,11 +3,11 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
     int users = loadProfile.getUsers();
     long rampUp = toMillis(loadProfile.getRampUp());
     long holdFor = toMillis(loadProfile.getHoldFor());
-    long warmup = loadProfile.getWarmup() != null ? toMillis(loadProfile.getWarmup()) : 0;
+    long warmup = toMillis(loadProfile.getWarmup());
     int iterations = loadProfile.getIterations();
 
-    logger.info("Executing CLOSED model: users={}, rampUp={}ms, holdFor={}ms, warmup={}ms, iterations={}, sla={}",
-            users, rampUp, holdFor, warmup, iterations, loadProfile.getServiceLevelAgreement());
+    logger.info("Executing CLOSED model: users={}, rampUp={}ms, holdFor={}ms, warmup={}ms, iterations={}",
+            users, rampUp, holdFor, warmup, iterations);
 
     ScheduledExecutorService metricsScheduler = startMetricsRecorder();
     ExecutorService executor = Executors.newFixedThreadPool(users);
@@ -19,34 +19,19 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
         long rampUpDelay = users > 0 ? rampUp / users : 0;
 
         for (int i = 0; i < users; i++) {
-            // 🚨 EARLY EXIT if SLA failed
-            if (isCancelled() || !metricsCollector.getIsRunning().get()) {
-                logger.warn("Execution {} cancelled before starting user {}", executionId, i);
-                break;
-            }
-
+            if (shouldStop()) break;
             final int userId = i;
             executor.submit(() -> runUserClosedLoad(userId, iterations, rampUpDelay, cancelled));
         }
 
-        // 🚨 Instead of blindly waiting, check SLA flag
-        while (!executor.isTerminated()) {
-            if (!metricsCollector.getIsRunning().get()) {
-                logger.warn("Execution {} stopping early due to SLA breach", executionId);
-                executor.shutdownNow(); // kill active tasks
-                break;
-            }
-            if (executor.awaitTermination(1, TimeUnit.SECONDS)) {
-                break; // finished naturally
-            }
-        }
-
-        if (!executor.isTerminated()) {
+        // ✅ Wait only for hold time
+        boolean finished = executor.awaitTermination(holdFor, TimeUnit.MILLISECONDS);
+        if (!finished) {
             logger.warn("Execution {} timed out after {}ms", executionId, holdFor);
             cancelled.set(true);
             executor.shutdownNow();
         } else {
-            logger.info("Execution completed for {}", executionId);
+            logger.info("Execution {} completed successfully", executionId);
         }
 
     } finally {
@@ -55,9 +40,12 @@ private LoadTestReport executeClosedModel() throws InterruptedException {
         runningExecutors.remove(executionId);
     }
 
-    LoadTestReport report = metricsCollector.buildReport(loadProfile);
-    logger.info("Report for {}: {}", executionId, report);
-    return report;
+    return generateReport();
 }
 
+private boolean shouldStop() {
+    AtomicBoolean cancelled = runningFlags.get(executionId);
+    return (cancelled != null && cancelled.get()) 
+           || !metricsCollector.getIsRunning().get();
+}
 ```
