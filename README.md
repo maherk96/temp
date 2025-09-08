@@ -1,9 +1,4 @@
-```sql
--- Script to delete non-regression test launches and all related data
--- This script deletes test launches where REGRESSION = 0 and all dependent records
-
-SET SERVEROUTPUT ON;
-
+``sql
 DECLARE
     v_test_launch_count NUMBER := 0;
     v_test_step_run_count NUMBER := 0;
@@ -17,6 +12,9 @@ DECLARE
     v_log_count NUMBER := 0;
     
 BEGIN
+    -- Enable output for this session
+    DBMS_OUTPUT.ENABLE(1000000);
+    
     DBMS_OUTPUT.PUT_LINE('Starting deletion of non-regression test launches and related data...');
     DBMS_OUTPUT.PUT_LINE('Transaction started at: ' || TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS'));
     
@@ -78,7 +76,7 @@ BEGIN
     -- Step 6: Delete PERFORMANCE_METRICS records (if they reference test launches)
     DELETE FROM QAPORTAL.PERFORMANCE_METRICS 
     WHERE TEST_LAUNCH_ID IN (
-        SELECT LAUNCH_ID FROM QAPORTAL.TEST_LAUNCH WHERE REGRESSION = 0
+        SELECT LAUNCH_ID FROM QAPORTAL.TEST_LAUNCH WHERE REGRESSION = 0 AND LAUNCH_ID IS NOT NULL
     );
     v_performance_metrics_count := SQL%ROWCOUNT;
     DBMS_OUTPUT.PUT_LINE('Deleted ' || v_performance_metrics_count || ' PERFORMANCE_METRICS records');
@@ -158,15 +156,6 @@ EXCEPTION
 END;
 /
 
--- Optional: Display remaining regression test launches
-SELECT 
-    COUNT(*) as "Remaining Regression Test Launches"
-FROM QAPORTAL.TEST_LAUNCH 
-WHERE REGRESSION = 1;
 
--- Optional: Display total remaining test launches
-SELECT 
-    COUNT(*) as "Total Remaining Test Launches"
-FROM QAPORTAL.TEST_LAUNCH;
 
 ```
