@@ -1,4 +1,4 @@
-``sql
+```sql
 DECLARE
     v_test_launch_count NUMBER := 0;
     v_test_step_run_count NUMBER := 0;
