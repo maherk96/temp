@@ -1,38 +1,61 @@
+```sql
 
-⸻
+CREATE TABLE "QAPORTAL"."DASHBOARD" 
+(
+    "ID" NUMBER(19,0) NOT NULL ENABLE,
+    "NAME" VARCHAR2(200 CHAR) NOT NULL ENABLE,
+    "DESCRIPTION" VARCHAR2(1000 CHAR),
+    "CREATED_BY" NUMBER(19,0) NOT NULL ENABLE,
+    "CREATED" TIMESTAMP (6) WITH TIME ZONE DEFAULT SYSTIMESTAMP,
+    PRIMARY KEY ("ID")
+        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
+        TABLESPACE "QAPORTAL_DATA" ENABLE,
+    CONSTRAINT "FK_DASHBOARD_USER" FOREIGN KEY ("CREATED_BY")
+        REFERENCES "QAPORTAL"."USERS" ("ID") ENABLE
+) SEGMENT CREATION IMMEDIATE 
+PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
+ROW STORE COMPRESS ADVANCED LOGGING 
+TABLESPACE "QAPORTAL_DATA";
 
-Standardised Approach
 
-A unified method for capturing and structuring test results, ensuring consistency across projects and enabling clear, data-driven decision-making.
+CREATE TABLE "QAPORTAL"."WIDGET" 
+(
+    "ID" NUMBER(19,0) NOT NULL ENABLE,
+    "DASHBOARD_ID" NUMBER(19,0) NOT NULL ENABLE,
+    "NAME" VARCHAR2(200 CHAR) NOT NULL ENABLE,
+    "DESCRIPTION" VARCHAR2(1000 CHAR),
+    "WIDGET_TYPE" VARCHAR2(50 CHAR) NOT NULL ENABLE, -- enum e.g. TABLE, BAR, PIE
+    "DATASET" VARCHAR2(100 CHAR) NOT NULL ENABLE, -- enum/list e.g. MOST_FAILED_TESTS
+    "ORDINAL" NUMBER(10,0) NOT NULL ENABLE,
+    "CREATED" TIMESTAMP (6) WITH TIME ZONE DEFAULT SYSTIMESTAMP,
+    PRIMARY KEY ("ID")
+        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
+        TABLESPACE "QAPORTAL_DATA" ENABLE,
+    CONSTRAINT "FK_WIDGET_DASHBOARD" FOREIGN KEY ("DASHBOARD_ID")
+        REFERENCES "QAPORTAL"."DASHBOARD" ("ID") ENABLE
+) SEGMENT CREATION IMMEDIATE 
+PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
+ROW STORE COMPRESS ADVANCED LOGGING 
+TABLESPACE "QAPORTAL_DATA";
 
-⸻
 
-Streamlined Management
+CREATE TABLE "QAPORTAL"."WIDGET_CONFIG"
+(
+    "ID" NUMBER(19,0) NOT NULL ENABLE,
+    "WIDGET_ID" NUMBER(19,0) NOT NULL ENABLE,
+    "CONFIG" CLOB, -- JSON (e.g. { "appId":123, "limit":50, "status":["FAILED"] })
+    PRIMARY KEY ("ID")
+        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
+        TABLESPACE "QAPORTAL_DATA" ENABLE,
+    CONSTRAINT "FK_WIDGET_CONFIG_WIDGET" FOREIGN KEY ("WIDGET_ID")
+        REFERENCES "QAPORTAL"."WIDGET" ("ID") ENABLE
+) SEGMENT CREATION IMMEDIATE 
+PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
+ROW STORE COMPRESS ADVANCED LOGGING 
+TABLESPACE "QAPORTAL_DATA"
+LOB ("CONFIG") STORE AS SECUREFILE (
+    TABLESPACE "QAPORTAL_DATA" ENABLE STORAGE IN ROW CHUNK 8192
+    NOCACHE LOGGING NOCOMPRESS KEEP_DUPLICATES
+);
 
-Centralised organisation and presentation of test results, simplifying oversight and reducing the time needed to assess quality across multiple test runs.
-
-⸻
-
-Solace Integration
-
-Reliable, event-driven delivery of test results through Solace messaging, enabling scalable, real-time data flow from any supported test engine into QA Portal.
-
-⸻
-
-Seamless Integration
-
-JSON-based data exchange ensures effortless compatibility with a wide range of test frameworks and tools, making it easy to integrate results into QA Portal.
-
-⸻
-
-Data Persistence
-
-Test results are securely stored in an Oracle database, guaranteeing durability, auditability, and quick access to both real-time and historical testing insights.
-
-⸻
-
-Intuitive UI
-
-An elegant, user-friendly interface makes it simple to visualise, filter, and analyse test results—turning raw data into actionable insights with clarity and ease.
-
-⸻
+```
