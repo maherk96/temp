@@ -1,61 +1,181 @@
-```sql
+```java
 
-CREATE TABLE "QAPORTAL"."DASHBOARD" 
-(
-    "ID" NUMBER(19,0) NOT NULL ENABLE,
-    "NAME" VARCHAR2(200 CHAR) NOT NULL ENABLE,
-    "DESCRIPTION" VARCHAR2(1000 CHAR),
-    "CREATED_BY" NUMBER(19,0) NOT NULL ENABLE,
-    "CREATED" TIMESTAMP (6) WITH TIME ZONE DEFAULT SYSTIMESTAMP,
-    PRIMARY KEY ("ID")
-        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
-        TABLESPACE "QAPORTAL_DATA" ENABLE,
-    CONSTRAINT "FK_DASHBOARD_USER" FOREIGN KEY ("CREATED_BY")
-        REFERENCES "QAPORTAL"."USERS" ("ID") ENABLE
-) SEGMENT CREATION IMMEDIATE 
-PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
-ROW STORE COMPRESS ADVANCED LOGGING 
-TABLESPACE "QAPORTAL_DATA";
+package com.citi.fxpg.model;
 
+import jakarta.xml.bind.annotation.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+import java.util.List;
 
-CREATE TABLE "QAPORTAL"."WIDGET" 
-(
-    "ID" NUMBER(19,0) NOT NULL ENABLE,
-    "DASHBOARD_ID" NUMBER(19,0) NOT NULL ENABLE,
-    "NAME" VARCHAR2(200 CHAR) NOT NULL ENABLE,
-    "DESCRIPTION" VARCHAR2(1000 CHAR),
-    "WIDGET_TYPE" VARCHAR2(50 CHAR) NOT NULL ENABLE, -- enum e.g. TABLE, BAR, PIE
-    "DATASET" VARCHAR2(100 CHAR) NOT NULL ENABLE, -- enum/list e.g. MOST_FAILED_TESTS
-    "ORDINAL" NUMBER(10,0) NOT NULL ENABLE,
-    "CREATED" TIMESTAMP (6) WITH TIME ZONE DEFAULT SYSTIMESTAMP,
-    PRIMARY KEY ("ID")
-        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
-        TABLESPACE "QAPORTAL_DATA" ENABLE,
-    CONSTRAINT "FK_WIDGET_DASHBOARD" FOREIGN KEY ("DASHBOARD_ID")
-        REFERENCES "QAPORTAL"."DASHBOARD" ("ID") ENABLE
-) SEGMENT CREATION IMMEDIATE 
-PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
-ROW STORE COMPRESS ADVANCED LOGGING 
-TABLESPACE "QAPORTAL_DATA";
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlRootElement(name = "TradeBookingRequest_3.0")
+@XmlAccessorType(XmlAccessType.FIELD)
+public class TradeBookingRequest {
+    
+    @XmlElement(name = "SystemDetails")
+    private SystemDetails systemDetails;
+    
+    @XmlElement(name = "TradeDetails")
+    private TradeDetails tradeDetails;
+    
+    @XmlElement(name = "INPUT_TIME")
+    private String inputTime;
+    
+    @XmlElement(name = "TradeAttributeList")
+    private TradeAttributeList tradeAttributeList;
+}
 
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class SystemDetails {
+    
+    @XmlElement(name = "CLIENT_SYSTEM")
+    private String clientSystem;
+    
+    @XmlElement(name = "CLIENT_SUBSYSTEM")
+    private String clientSubsystem;
+    
+    @XmlElement(name = "TRANSMITTED_DATETIME")
+    private String transmittedDateTime;
+}
 
-CREATE TABLE "QAPORTAL"."WIDGET_CONFIG"
-(
-    "ID" NUMBER(19,0) NOT NULL ENABLE,
-    "WIDGET_ID" NUMBER(19,0) NOT NULL ENABLE,
-    "CONFIG" CLOB, -- JSON (e.g. { "appId":123, "limit":50, "status":["FAILED"] })
-    PRIMARY KEY ("ID")
-        USING INDEX PCTFREE 10 INITRANS 2 MAXTRANS 255 COMPUTE STATISTICS COMPRESS ADVANCED HIGH 
-        TABLESPACE "QAPORTAL_DATA" ENABLE,
-    CONSTRAINT "FK_WIDGET_CONFIG_WIDGET" FOREIGN KEY ("WIDGET_ID")
-        REFERENCES "QAPORTAL"."WIDGET" ("ID") ENABLE
-) SEGMENT CREATION IMMEDIATE 
-PCTFREE 10 PCTUSED 40 INITRANS 1 MAXTRANS 255 
-ROW STORE COMPRESS ADVANCED LOGGING 
-TABLESPACE "QAPORTAL_DATA"
-LOB ("CONFIG") STORE AS SECUREFILE (
-    TABLESPACE "QAPORTAL_DATA" ENABLE STORAGE IN ROW CHUNK 8192
-    NOCACHE LOGGING NOCOMPRESS KEEP_DUPLICATES
-);
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class TradeDetails {
+    
+    @XmlElement(name = "CLIENT_REFERENCE")
+    private String clientReference;
+    
+    @XmlElement(name = "BOOKING_BRANCH")
+    private String bookingBranch;
+    
+    @XmlElement(name = "CUSTOMER_DEALER_ID")
+    private String customerDealerId;
+    
+    @XmlElement(name = "CCY1_DEALER_ID")
+    private String ccy1DealerId;
+    
+    @XmlElement(name = "CCY2_DEALER_ID")
+    private String ccy2DealerId;
+    
+    @XmlElement(name = "BROKER_CODE")
+    private String brokerCode;
+    
+    @XmlElement(name = "IS_CUSTOMER_TRADE")
+    private String isCustomerTrade;
+    
+    @XmlElement(name = "CUSTOMERID")
+    private String customerId;
+    
+    @XmlElement(name = "CUSTOMER_NAME")
+    private String customerName;
+    
+    @XmlElement(name = "CUSTOMER_TYPE")
+    private String customerType;
+    
+    @XmlElement(name = "TRADE_INSTRUMENT")
+    private String tradeInstrument;
+    
+    @XmlElement(name = "TRADE_ACTION")
+    private String tradeAction;
+    
+    @XmlElement(name = "CROSS_RATE_TYPE")
+    private String crossRateType;
+    
+    @XmlElement(name = "MARKET_FIELD")
+    private String marketField;
+    
+    @XmlElement(name = "BOOKING_DATE")
+    private String bookingDate;
+    
+    @XmlElement(name = "TRADE_LEGS")
+    private TradeLegs tradeLegs;
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class TradeLegs {
+    
+    @XmlElement(name = "TradeLeg")
+    private List<TradeLeg> tradeLegs;
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class TradeLeg {
+    
+    @XmlElement(name = "LEG_NO")
+    private String legNo;
+    
+    @XmlElement(name = "LEG_TYPE")
+    private String legType;
+    
+    @XmlElement(name = "SPOT_DATE")
+    private String spotDate;
+    
+    @XmlElement(name = "CCY1_VALUE_DATE")
+    private String ccy1ValueDate;
+    
+    @XmlElement(name = "CCY2_VALUE_DATE")
+    private String ccy2ValueDate;
+    
+    @XmlElement(name = "CCY1_BSIND")
+    private String ccy1BsInd;
+    
+    @XmlElement(name = "CURRENCY1")
+    private String currency1;
+    
+    @XmlElement(name = "CURRENCY2")
+    private String currency2;
+    
+    @XmlElement(name = "CCY1_CCY2_BASE")
+    private String ccy1Ccy2Base;
+    
+    @XmlElement(name = "AMOUNT1")
+    private String amount1;
+    
+    @XmlElement(name = "AMOUNT2")
+    private String amount2;
+    
+    @XmlElement(name = "SPOT_DEAL_RATE")
+    private String spotDealRate;
+    
+    @XmlElement(name = "SPOT_COVER_RATE")
+    private String spotCoverRate;
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class TradeAttributeList {
+    
+    @XmlElement(name = "TradeAttributeInfo")
+    private List<TradeAttributeInfo> tradeAttributeInfo;
+}
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@XmlAccessorType(XmlAccessType.FIELD)
+class TradeAttributeInfo {
+    
+    @XmlAttribute(name = "name")
+    private String name;
+    
+    @XmlAttribute(name = "value")
+    private String value;
+}
 
 ```
