@@ -1,92 +1,155 @@
 ```java
-    @Test
-    void get_existingDashboard_returnsDTO() {
-        var user = new Users();
-        user.setName("testUser");
-        user = userRepository.save(user);
+@Service
+public class DashboardManagementService {
 
-        var dash = new Dashboard();
-        dash.setName("My Dashboard");
-        dash.setUser(user);
-        dash = dashboardRepository.save(dash);
+    private final DashboardService dashboardService;
 
-        var dto = dashboardService.get(dash.getId());
+    @Autowired
+    public DashboardManagementService(DashboardService dashboardService) {
+        this.dashboardService = dashboardService;
+    }
 
-        assertNotNull(dto);
-        assertEquals(dash.getId(), dto.getId());
-        assertEquals("My Dashboard", dto.getName());
+    @Cacheable(
+        cacheNames = "dashboardCache",
+        key = "'findAll_page_' + #pageable.pageNumber + '_' + #pageable.pageSize + '_' + #root.methodName + '_' + #pageable.sort.toString()"
+    )
+    public Page<DashboardDTO> findAll(Pageable pageable) {
+        return dashboardService.findAll(pageable);
+    }
+
+    @Cacheable(cacheNames = "dashboardCache", key = "'get_' + #id")
+    public DashboardDTO get(final Long id) {
+        return dashboardService.get(id);
+    }
+
+    @CacheEvict(cacheNames = "dashboardCache", allEntries = true)
+    public DashboardDTO create(final DashboardDetails dashboardDetails) {
+        return dashboardService.create(dashboardDetails);
+    }
+
+    @Caching(evict = {
+        @CacheEvict(cacheNames = "dashboardCache", key = "'get_' + #id"),   // evict single item
+        @CacheEvict(cacheNames = "dashboardCache", allEntries = true)      // evict pagination caches
+    })
+    public DashboardDTO update(final Long id, final DashboardUpdate dashboardUpdate) {
+        return dashboardService.update(id, dashboardUpdate);
+    }
+
+    @Caching(evict = {
+        @CacheEvict(cacheNames = "dashboardCache", key = "'get_' + #id"),   // evict single item
+        @CacheEvict(cacheNames = "dashboardCache", allEntries = true)      // evict pagination caches
+    })
+    public void delete(final Long id) {
+        dashboardService.delete(id);
+    }
+}
+
+@EnableCaching
+@SpringBootTest
+@ContextConfiguration(classes = {DashboardManagementService.class, CacheConfig.class})
+class DashboardManagementServiceTest {
+
+    @MockBean private DashboardService dashboardService;
+
+    @Autowired private DashboardManagementService managementService;
+
+    @Autowired private CacheManager cacheManager;
+
+    @BeforeEach
+    void setUp() {
+        // Clear the cache before each test
+        cacheManager.getCache("dashboardCache").clear();
     }
 
     @Test
-    void get_nonExistingDashboard_throws() {
-        assertThrows(NotFoundException.class, () -> dashboardService.get(999L));
+    void testFindAll_isCached() {
+        Pageable pageable = PageRequest.of(0, 5);
+        Page<DashboardDTO> expected = new PageImpl<>(List.of(new DashboardDTO()));
+
+        when(dashboardService.findAll(pageable)).thenReturn(expected);
+
+        var firstCall = managementService.findAll(pageable);
+        var secondCall = managementService.findAll(pageable);
+
+        assertSame(firstCall, secondCall);
+        verify(dashboardService, times(1)).findAll(pageable);
     }
 
     @Test
-    void create_usesUserManagementService() {
-        var fakeUser = new Users();
-        fakeUser.setId(42L);
-        fakeUser.setName("mockUser");
+    void testGet_isCached() {
+        Long id = 1L;
+        var dto = new DashboardDTO();
+        dto.setId(id);
+        dto.setName("Test Dashboard");
 
-        when(userManagementService.getOrCreateUser("mockUser")).thenReturn(fakeUser);
+        when(dashboardService.get(id)).thenReturn(dto);
 
-        var details = new DashboardDetails("Dash Name", "Desc", "mockUser");
+        var firstCall = managementService.get(id);
+        var secondCall = managementService.get(id);
 
-        var dto = dashboardService.create(details);
-
-        assertNotNull(dto.getId());
-        assertEquals("Dash Name", dto.getName());
-        assertEquals("Desc", dto.getDescription());
-
-        verify(userManagementService, times(1)).getOrCreateUser("mockUser");
+        assertSame(firstCall, secondCall);
+        verify(dashboardService, times(1)).get(id);
     }
 
     @Test
-    void update_changesNameAndDescription() {
-        var user = new Users();
-        user.setName("testUser");
-        user = userRepository.save(user);
+    void testCreate_cacheEvicts() {
+        Long id = 1L;
+        var dto = new DashboardDTO();
+        dto.setId(id);
 
-        var dash = new Dashboard();
-        dash.setName("Old Name");
-        dash.setDescription("Old Desc");
-        dash.setUser(user);
-        dash = dashboardRepository.save(dash);
+        when(dashboardService.get(id)).thenReturn(dto);
 
-        var update = new DashboardUpdate("New Name", "New Desc");
+        // cache it
+        var firstCall = managementService.get(id);
+        assertEquals(dto, firstCall);
 
-        var dto = dashboardService.update(dash.getId(), update);
+        // create triggers eviction
+        managementService.create(new DashboardDetails("Dash", "Desc", "user"));
 
-        assertEquals("New Name", dto.getName());
-        assertEquals("New Desc", dto.getDescription());
+        // fetch again → should trigger service call again
+        managementService.get(id);
+
+        verify(dashboardService, times(2)).get(id);
     }
 
     @Test
-    void update_nonExistingDashboard_throws() {
-        var update = new DashboardUpdate("Name", "Desc");
-        assertThrows(NotFoundException.class, () -> dashboardService.update(999L, update));
+    void testUpdate_cacheEvicts() {
+        Long id = 1L;
+        var dto = new DashboardDTO();
+        dto.setId(id);
+
+        when(dashboardService.get(id)).thenReturn(dto);
+
+        // cache it
+        managementService.get(id);
+
+        // update triggers eviction
+        managementService.update(id, new DashboardUpdate("New Name", "New Desc"));
+
+        // fetch again → service called again
+        managementService.get(id);
+
+        verify(dashboardService, times(2)).get(id);
     }
 
     @Test
-    void delete_marksDashboardAsDeleted() {
-        var user = new Users();
-        user.setName("testUser");
-        user = userRepository.save(user);
+    void testDelete_cacheEvicts() {
+        Long id = 1L;
+        var dto = new DashboardDTO();
+        dto.setId(id);
 
-        var dash = new Dashboard();
-        dash.setName("To Delete");
-        dash.setUser(user);
-        dash = dashboardRepository.save(dash);
+        when(dashboardService.get(id)).thenReturn(dto);
 
-        dashboardService.delete(dash.getId());
+        // cache it
+        managementService.get(id);
 
-        var deleted = dashboardRepository.findById(dash.getId()).orElseThrow();
-        assertTrue(deleted.getDeleted());
-        assertNotNull(deleted.getLastUpdate());
+        // delete triggers eviction
+        managementService.delete(id);
+
+        // fetch again → service called again
+        managementService.get(id);
+
+        verify(dashboardService, times(2)).get(id);
     }
-
-    @Test
-    void delete_nonExistingDashboard_throws() {
-        assertThrows(NotFoundException.class, () -> dashboardService.delete(999L));
-    }
+}
 ```
