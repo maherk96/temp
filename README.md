@@ -1,155 +1,287 @@
 ```java
-@Service
-public class DashboardManagementService {
 
-    private final DashboardService dashboardService;
 
-    @Autowired
-    public DashboardManagementService(DashboardService dashboardService) {
-        this.dashboardService = dashboardService;
+public class FieldErrorDetails {
+    private String field;
+    private String code;      // validation error code (e.g. NotBlank)
+    private String message;   // human-friendly message (e.g. "Name must not be blank")
+
+    public FieldErrorDetails() {}
+
+    public FieldErrorDetails(String field, String code, String message) {
+        this.field = field;
+        this.code = code;
+        this.message = message;
     }
 
-    @Cacheable(
-        cacheNames = "dashboardCache",
-        key = "'findAll_page_' + #pageable.pageNumber + '_' + #pageable.pageSize + '_' + #root.methodName + '_' + #pageable.sort.toString()"
-    )
-    public Page<DashboardDTO> findAll(Pageable pageable) {
-        return dashboardService.findAll(pageable);
+    // Getters and setters
+}
+
+public class ErrorResponse {
+
+    private Instant timestamp;
+    private int status;              // HTTP status code (e.g. 404)
+    private String error;            // Human-readable status (e.g. "Not Found")
+    private String message;          // Exception message
+    private String path;             // Request path (/api/dashboard/1)
+    private List<FieldErrorDetails> fieldErrors;
+
+    public ErrorResponse() {}
+
+    public ErrorResponse(Instant timestamp, int status, String error, String message, String path, List<FieldErrorDetails> fieldErrors) {
+        this.timestamp = timestamp;
+        this.status = status;
+        this.error = error;
+        this.message = message;
+        this.path = path;
+        this.fieldErrors = fieldErrors;
     }
 
-    @Cacheable(cacheNames = "dashboardCache", key = "'get_' + #id")
-    public DashboardDTO get(final Long id) {
-        return dashboardService.get(id);
+    // Getters and setters omitted for brevity
+}
+
+
+@RestControllerAdvice(annotations = RestController.class)
+public class RestExceptionHandler {
+
+    /**
+     * Handle NotFoundException (custom domain exception)
+     */
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNotFound(NotFoundException ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.NOT_FOUND, request, null);
     }
 
-    @CacheEvict(cacheNames = "dashboardCache", allEntries = true)
-    public DashboardDTO create(final DashboardDetails dashboardDetails) {
-        return dashboardService.create(dashboardDetails);
+    /**
+     * Handle validation errors from @Valid
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationErrors(MethodArgumentNotValidException ex,
+                                                                HttpServletRequest request) {
+        List<FieldErrorDetails> fieldErrors = ex.getBindingResult().getFieldErrors().stream()
+                .map(err -> new FieldErrorDetails(
+                        err.getField(),
+                        err.getCode(),
+                        err.getDefaultMessage()
+                ))
+                .toList();
+
+        return buildErrorResponse(ex, HttpStatus.BAD_REQUEST, request, fieldErrors);
     }
 
-    @Caching(evict = {
-        @CacheEvict(cacheNames = "dashboardCache", key = "'get_' + #id"),   // evict single item
-        @CacheEvict(cacheNames = "dashboardCache", allEntries = true)      // evict pagination caches
-    })
-    public DashboardDTO update(final Long id, final DashboardUpdate dashboardUpdate) {
-        return dashboardService.update(id, dashboardUpdate);
+    /**
+     * Handle Spring's ResponseStatusException (e.g. from WebFlux / custom responses)
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex,
+                                                              HttpServletRequest request) {
+        return buildErrorResponse(ex, ex.getStatusCode(), request, null);
     }
 
-    @Caching(evict = {
-        @CacheEvict(cacheNames = "dashboardCache", key = "'get_' + #id"),   // evict single item
-        @CacheEvict(cacheNames = "dashboardCache", allEntries = true)      // evict pagination caches
-    })
-    public void delete(final Long id) {
-        dashboardService.delete(id);
+    /**
+     * Handle custom invalid pagination request
+     */
+    @ExceptionHandler(InvalidResponseException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPagination(InvalidResponseException ex,
+                                                                 HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.BAD_REQUEST, request, ex.getErrorDetails());
+    }
+
+    /**
+     * Generic fallback for all unhandled exceptions
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGeneric(Exception ex, HttpServletRequest request) {
+        return buildErrorResponse(ex, HttpStatus.INTERNAL_SERVER_ERROR, request, null);
+    }
+
+    /**
+     * Helper method to construct ErrorResponse consistently
+     */
+    private ResponseEntity<ErrorResponse> buildErrorResponse(Exception ex,
+                                                             HttpStatus status,
+                                                             HttpServletRequest request,
+                                                             List<FieldErrorDetails> fieldErrors) {
+        ErrorResponse response = new ErrorResponse(
+                Instant.now(),
+                status.value(),
+                status.getReasonPhrase(),
+                ex.getMessage(),
+                request.getRequestURI(),
+                fieldErrors
+        );
+        return ResponseEntity.status(status).body(response);
     }
 }
 
-@EnableCaching
-@SpringBootTest
-@ContextConfiguration(classes = {DashboardManagementService.class, CacheConfig.class})
-class DashboardManagementServiceTest {
+@RestController
+@RequestMapping(value = "/api/dashboard", produces = MediaType.APPLICATION_JSON_VALUE)
+@Tag(name = "QAP Dashboard", description = "QAP Dashboards Service API")
+public class QAPDashboardResource {
 
-    @MockBean private DashboardService dashboardService;
+    private final DashboardManagementService dashboardManagementService;
 
-    @Autowired private DashboardManagementService managementService;
+    public QAPDashboardResource(DashboardManagementService dashboardManagementService) {
+        this.dashboardManagementService = dashboardManagementService;
+    }
 
-    @Autowired private CacheManager cacheManager;
+    @PostMapping
+    @Operation(summary = "Create a new dashboard", description = "Creates and returns a newly created dashboard.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "201", description = "Dashboard created",
+            content = @Content(schema = @Schema(implementation = DashboardDTO.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid request body",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<DashboardDTO> createDashboard(@Valid @RequestBody DashboardDetails dashboardDetails) {
+        DashboardDTO created = dashboardManagementService.create(dashboardDetails);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(created.getId())
+                .toUri();
+        return ResponseEntity.created(location).body(created);
+    }
 
-    @BeforeEach
-    void setUp() {
-        // Clear the cache before each test
-        cacheManager.getCache("dashboardCache").clear();
+    @PutMapping("/{id}")
+    @Operation(summary = "Update an existing dashboard", description = "Updates a dashboard by its ID.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Dashboard updated",
+            content = @Content(schema = @Schema(implementation = DashboardDTO.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid update data",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Dashboard not found",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<DashboardDTO> updateDashboard(
+            @PathVariable Long id,
+            @Valid @RequestBody DashboardUpdate update) {
+        DashboardDTO updated = dashboardManagementService.update(id, update);
+        return ResponseEntity.ok(updated);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete an existing dashboard", description = "Deletes a dashboard by its ID.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "204", description = "Dashboard deleted successfully"),
+        @ApiResponse(responseCode = "404", description = "Dashboard not found",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<Void> deleteDashboard(@PathVariable Long id) {
+        dashboardManagementService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping
+    @Operation(summary = "Get paginated dashboards", description = "Returns a paginated list of dashboards.")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "List of dashboards",
+            content = @Content(schema = @Schema(implementation = PaginatedResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid pagination parameters",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Internal server error",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<PaginatedResponse<DashboardDTO>> getDashboards(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        Page<DashboardDTO> dashboardPage = dashboardManagementService.findAll(PageRequest.of(page - 1, size));
+        return ResponseEntity.ok(PaginatedResponseMapper.from(dashboardPage));
+    }
+}
+
+@WebMvcTest(QAPDashboardResource.class)
+@AutoConfigureMockMvc
+class QAPDashboardResourceTest {
+
+    @Autowired private MockMvc mockMvc;
+
+    @MockBean private DashboardManagementService dashboardManagementService;
+
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void createDashboard_returns201() throws Exception {
+        DashboardDTO dto = new DashboardDTO();
+        dto.setId(1L);
+        dto.setName("My Dashboard");
+
+        when(dashboardManagementService.create(any(DashboardDetails.class)))
+                .thenReturn(dto);
+
+        DashboardDetails details = new DashboardDetails("My Dashboard", "Description", "user1");
+
+        mockMvc.perform(post("/api/dashboard")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(details)))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", containsString("/api/dashboard/1")))
+                .andExpect(jsonPath("$.id").value(1L))
+                .andExpect(jsonPath("$.name").value("My Dashboard"));
     }
 
     @Test
-    void testFindAll_isCached() {
-        Pageable pageable = PageRequest.of(0, 5);
-        Page<DashboardDTO> expected = new PageImpl<>(List.of(new DashboardDTO()));
+    void updateDashboard_returns200() throws Exception {
+        DashboardDTO dto = new DashboardDTO();
+        dto.setId(1L);
+        dto.setName("Updated Name");
 
-        when(dashboardService.findAll(pageable)).thenReturn(expected);
+        when(dashboardManagementService.update(eq(1L), any(DashboardUpdate.class)))
+                .thenReturn(dto);
 
-        var firstCall = managementService.findAll(pageable);
-        var secondCall = managementService.findAll(pageable);
+        DashboardUpdate update = new DashboardUpdate("Updated Name", "New Description");
 
-        assertSame(firstCall, secondCall);
-        verify(dashboardService, times(1)).findAll(pageable);
+        mockMvc.perform(put("/api/dashboard/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1L))
+                .andExpect(jsonPath("$.name").value("Updated Name"));
     }
 
     @Test
-    void testGet_isCached() {
-        Long id = 1L;
-        var dto = new DashboardDTO();
-        dto.setId(id);
-        dto.setName("Test Dashboard");
+    void deleteDashboard_returns204() throws Exception {
+        mockMvc.perform(delete("/api/dashboard/1"))
+                .andExpect(status().isNoContent());
 
-        when(dashboardService.get(id)).thenReturn(dto);
-
-        var firstCall = managementService.get(id);
-        var secondCall = managementService.get(id);
-
-        assertSame(firstCall, secondCall);
-        verify(dashboardService, times(1)).get(id);
+        verify(dashboardManagementService, times(1)).delete(1L);
     }
 
     @Test
-    void testCreate_cacheEvicts() {
-        Long id = 1L;
-        var dto = new DashboardDTO();
-        dto.setId(id);
+    void getDashboards_returns200() throws Exception {
+        DashboardDTO dto = new DashboardDTO();
+        dto.setId(1L);
+        dto.setName("Test Dash");
 
-        when(dashboardService.get(id)).thenReturn(dto);
+        Page<DashboardDTO> page = new PageImpl<>(List.of(dto));
+        when(dashboardManagementService.findAll(any(Pageable.class)))
+                .thenReturn(page);
 
-        // cache it
-        var firstCall = managementService.get(id);
-        assertEquals(dto, firstCall);
-
-        // create triggers eviction
-        managementService.create(new DashboardDetails("Dash", "Desc", "user"));
-
-        // fetch again → should trigger service call again
-        managementService.get(id);
-
-        verify(dashboardService, times(2)).get(id);
+        mockMvc.perform(get("/api/dashboard?page=1&size=10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1L))
+                .andExpect(jsonPath("$.content[0].name").value("Test Dash"));
     }
 
     @Test
-    void testUpdate_cacheEvicts() {
-        Long id = 1L;
-        var dto = new DashboardDTO();
-        dto.setId(id);
+    void getDashboard_notFound_returns404() throws Exception {
+        when(dashboardManagementService.update(eq(99L), any(DashboardUpdate.class)))
+                .thenThrow(new NotFoundException("Dashboard with id 99 not found"));
 
-        when(dashboardService.get(id)).thenReturn(dto);
+        DashboardUpdate update = new DashboardUpdate("Name", "Desc");
 
-        // cache it
-        managementService.get(id);
-
-        // update triggers eviction
-        managementService.update(id, new DashboardUpdate("New Name", "New Desc"));
-
-        // fetch again → service called again
-        managementService.get(id);
-
-        verify(dashboardService, times(2)).get(id);
-    }
-
-    @Test
-    void testDelete_cacheEvicts() {
-        Long id = 1L;
-        var dto = new DashboardDTO();
-        dto.setId(id);
-
-        when(dashboardService.get(id)).thenReturn(dto);
-
-        // cache it
-        managementService.get(id);
-
-        // delete triggers eviction
-        managementService.delete(id);
-
-        // fetch again → service called again
-        managementService.get(id);
-
-        verify(dashboardService, times(2)).get(id);
+        mockMvc.perform(put("/api/dashboard/99")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(update)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Not Found"))
+                .andExpect(jsonPath("$.message").value("Dashboard with id 99 not found"));
     }
 }
 ```
