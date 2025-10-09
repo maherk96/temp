@@ -1,145 +1,158 @@
 ```java
+@AutoConfigureMockMvc
+@WebMvcTest(DashboardController.class)
 @ExtendWith(MockitoExtension.class)
-class DashboardServiceTest {
+class DashboardControllerTest {
 
-    @Mock
-    private DashboardRepository dashboardRepository;
+    @Autowired
+    private MockMvc mockMvc;
 
-    @Mock
-    private UserManagementService userManagementService;
+    @MockBean
+    private DashboardManagementService dashboardManagementService;
 
-    @InjectMocks
-    private DashboardService dashboardService;
-
-    private Dashboard dashboard1;
-    private Dashboard dashboard2;
-    private Dashboard dashboard3;
-
-    @BeforeEach
-    void setup() {
-        dashboard1 = createDashboard(1L, "Dash 1", "Desc 1", "user1", false);
-        dashboard2 = createDashboard(2L, "Sales Report", "Monthly Report", "user2", false);
-        dashboard3 = createDashboard(3L, "Ops Board", "Operations", null, true);
+    // ✅ Helper factory method for mock DTOs
+    private DashboardResponseDTO createResponseDTO(long id, String name, boolean deleted) {
+        return new DashboardResponseDTO(id, "mk66440", name, "Description for " + name, deleted);
     }
 
+    private Page<DashboardResponseDTO> createPage(List<DashboardResponseDTO> dashboards, Pageable pageable) {
+        return new PageImpl<>(dashboards, pageable, dashboards.size());
+    }
+
+    // ✅ 1. Default paginated response
     @Test
-    void shouldReturnNonDeletedDashboards_whenDeletedFalse() {
-        Pageable pageable = PageRequest.of(0, 10);
-        String currentUser = "user1";
-        String dashboardType = null;
-        boolean deleted = false;
+    void getDashboards_shouldReturnPaginatedResponse() throws Exception {
+        int page = 1, size = 10;
+        var pageable = PageRequest.of(page - 1, size);
+        var dashboards = List.of(
+                createResponseDTO(1L, "Dash 1", false),
+                createResponseDTO(2L, "Dash 2", false)
+        );
+        var dashboardPage = createPage(dashboards, pageable);
 
-        Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard1, dashboard2), pageable, 2);
-
-        when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+        when(dashboardManagementService.findAll(
+                isNull(), isNull(), anyString(), eq(false), eq(pageable)))
                 .thenReturn(dashboardPage);
 
-        when(userManagementService.get(any()))
-                .thenReturn(new UserDTO("User One"));
+        mockMvc.perform(get("/api/dashboard")
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].dashboardName").value("Dash 1"))
+                .andExpect(jsonPath("$.data[0].isDeleted").value(false))
+                .andExpect(jsonPath("$.data[1].dashboardName").value("Dash 2"))
+                .andExpect(jsonPath("$.total").value(2));
 
-        Page<DashboardResponseDTO> result =
-                dashboardService.findAll(null, dashboardType, currentUser, deleted, pageable);
-
-        assertNotNull(result);
-        assertEquals(2, result.getTotalElements());
-        assertEquals("Dash 1", result.getContent().get(0).getName());
-        verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
+        verify(dashboardManagementService).findAll(
+                isNull(), isNull(), anyString(), eq(false), eq(pageable));
     }
 
+    // ✅ 2. Search filter
     @Test
-    void shouldReturnOnlyMyDashboards_whenTypeIsMyDashboards() {
-        Pageable pageable = PageRequest.of(0, 10);
-        String currentUser = "user1";
+    void getDashboards_shouldFilterBySearchTerm() throws Exception {
+        int page = 1, size = 5;
+        String search = "sales";
+        var pageable = PageRequest.of(page - 1, size);
+        var dashboards = List.of(createResponseDTO(1L, "Sales Report", false));
+        var dashboardPage = createPage(dashboards, pageable);
+
+        when(dashboardManagementService.findAll(
+                eq(search), isNull(), anyString(), eq(false), eq(pageable)))
+                .thenReturn(dashboardPage);
+
+        mockMvc.perform(get("/api/dashboard")
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size))
+                        .param("search", search))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].dashboardName").value("Sales Report"))
+                .andExpect(jsonPath("$.total").value(1));
+
+        verify(dashboardManagementService).findAll(
+                eq(search), isNull(), anyString(), eq(false), eq(pageable));
+    }
+
+    // ✅ 3. DashboardType filter (MY_DASHBOARDS)
+    @Test
+    void getDashboards_shouldFilterMyDashboards() throws Exception {
+        int page = 1, size = 10;
         String dashboardType = "MY_DASHBOARDS";
+        var pageable = PageRequest.of(page - 1, size);
+        var dashboards = List.of(createResponseDTO(1L, "My Dash", false));
+        var dashboardPage = createPage(dashboards, pageable);
 
-        Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard1), pageable, 1);
-
-        when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+        when(dashboardManagementService.findAll(
+                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable)))
                 .thenReturn(dashboardPage);
-        when(userManagementService.get(any()))
-                .thenReturn(new UserDTO("User One"));
 
-        Page<DashboardResponseDTO> result =
-                dashboardService.findAll(null, dashboardType, currentUser, false, pageable);
+        mockMvc.perform(get("/api/dashboard")
+                        .param("dashboardType", dashboardType)
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].dashboardName").value("My Dash"))
+                .andExpect(jsonPath("$.total").value(1));
 
-        assertEquals(1, result.getContent().size());
-        assertEquals("Dash 1", result.getContent().get(0).getName());
-        verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
+        verify(dashboardManagementService).findAll(
+                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable));
     }
 
+    // ✅ 4. DashboardType = SYSTEM_DASHBOARDS
     @Test
-    void shouldReturnDashboardsCreatedByOthers_whenTypeIsCreatedByOthers() {
-        Pageable pageable = PageRequest.of(0, 10);
-        String currentUser = "user1";
-        String dashboardType = "CREATED_BY_OTHERS";
-
-        Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard2), pageable, 1);
-
-        when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
-                .thenReturn(dashboardPage);
-        when(userManagementService.get(any()))
-                .thenReturn(new UserDTO("User Two"));
-
-        Page<DashboardResponseDTO> result =
-                dashboardService.findAll(null, dashboardType, currentUser, false, pageable);
-
-        assertEquals(1, result.getContent().size());
-        assertEquals("Sales Report", result.getContent().get(0).getName());
-        verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
-    }
-
-    @Test
-    void shouldReturnSystemDashboards_whenTypeIsSystemDashboards() {
-        Pageable pageable = PageRequest.of(0, 10);
-        String currentUser = "user1";
+    void getDashboards_shouldFilterSystemDashboards() throws Exception {
+        int page = 1, size = 10;
         String dashboardType = "SYSTEM_DASHBOARDS";
+        var pageable = PageRequest.of(page - 1, size);
+        var dashboards = List.of(createResponseDTO(3L, "Ops Board", true));
+        var dashboardPage = createPage(dashboards, pageable);
 
-        Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard3), pageable, 1);
-
-        when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+        when(dashboardManagementService.findAll(
+                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable)))
                 .thenReturn(dashboardPage);
-        when(userManagementService.get(any()))
-                .thenReturn(new UserDTO("System Dashboard"));
 
-        Page<DashboardResponseDTO> result =
-                dashboardService.findAll(null, dashboardType, currentUser, false, pageable);
+        mockMvc.perform(get("/api/dashboard")
+                        .param("dashboardType", dashboardType)
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].dashboardName").value("Ops Board"))
+                .andExpect(jsonPath("$.data[0].isDeleted").value(true))
+                .andExpect(jsonPath("$.total").value(1));
 
-        assertEquals(1, result.getContent().size());
-        assertEquals("Ops Board", result.getContent().get(0).getName());
-        assertTrue(result.getContent().get(0).getDeleted());
-        verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
+        verify(dashboardManagementService).findAll(
+                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable));
     }
 
+    // ✅ 5. Deleted = true
     @Test
-    void shouldIncludeDeletedDashboards_whenDeletedTrue() {
-        Pageable pageable = PageRequest.of(0, 10);
-        String currentUser = "user1";
+    void getDashboards_shouldIncludeDeleted_whenRequested() throws Exception {
+        int page = 1, size = 10;
         boolean deleted = true;
+        var pageable = PageRequest.of(page - 1, size);
+        var dashboards = List.of(
+                createResponseDTO(1L, "Dash 1", false),
+                createResponseDTO(2L, "Deleted Dash", true)
+        );
+        var dashboardPage = createPage(dashboards, pageable);
 
-        Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard1, dashboard3), pageable, 2);
-
-        when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+        when(dashboardManagementService.findAll(
+                isNull(), isNull(), anyString(), eq(deleted), eq(pageable)))
                 .thenReturn(dashboardPage);
-        when(userManagementService.get(any()))
-                .thenReturn(new UserDTO("User One"));
 
-        Page<DashboardResponseDTO> result =
-                dashboardService.findAll(null, null, currentUser, deleted, pageable);
+        mockMvc.perform(get("/api/dashboard")
+                        .param("deleted", "true")
+                        .param("page", String.valueOf(page))
+                        .param("size", String.valueOf(size)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[1].isDeleted").value(true))
+                .andExpect(jsonPath("$.total").value(2));
 
-        assertEquals(2, result.getContent().size());
-        assertTrue(result.getContent().stream().anyMatch(DashboardResponseDTO::getDeleted));
-        verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
-    }
-
-    // helper method
-    private Dashboard createDashboard(Long id, String name, String desc, String user, boolean deleted) {
-        Dashboard d = new Dashboard();
-        d.setId(id);
-        d.setName(name);
-        d.setDescription(desc);
-        d.setUser(user);
-        d.setDeleted(deleted);
-        return d;
+        verify(dashboardManagementService).findAll(
+                isNull(), isNull(), anyString(), eq(deleted), eq(pageable));
     }
 }
+
 ```
