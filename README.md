@@ -1,174 +1,67 @@
 ```java
 
-package com.citi.fx.qa.qap.db.repository;
 
-import com.citi.fx.qa.qap.db.entity.Dashboard;
-import com.citi.fx.qa.qap.db.entity.Users;
-import com.citi.fx.qa.qap.db.enums.DashboardType;
-import com.citi.fx.qa.qap.db.specification.DashboardSpecification;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.data.jpa.domain.Specification;
 
-import java.util.List;
+/**
+ * Specification for querying Dashboards based on search criteria and dashboard type.
+ */
+public class DashboardSpecification {
 
-import static org.assertj.core.api.Assertions.assertThat;
+    /**
+     * Builds a Specification for querying Dashboards.
+     *
+     * @param search          the search term to filter by name or description
+     * @param dashboardTypes  the list of dashboard types to filter by
+     *                        (e.g., MY_DASHBOARD, CREATED_BY_OTHERS, SYSTEM_DASHBOARD)
+     * @param currentUserId   the ID (SOEID / username) of the current user
+     * @param deleted         whether to include deleted dashboards
+     * @return a Specification for querying Dashboards
+     */
+    public static Specification<Dashboard> build(
+            String search,
+            List<DashboardType> dashboardTypes,
+            String currentUserId,
+            boolean deleted
+    ) {
+        Specification<Dashboard> spec = Specification.where(null);
 
-@DataJpaTest
-class DashboardSpecificationIT {
+        // 🔍 Search by name or description (case-insensitive)
+        if (StringUtils.hasText(search)) {
+            spec = spec.and((root, query, cb) ->
+                    cb.or(
+                            cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
+                            cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
+                    )
+            );
+        }
 
-    @Autowired
-    private DashboardRepository dashboardRepository;
+        // 🧩 Filter by dashboard types (MY, OTHERS, SYSTEM)
+        if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
+            Specification<Dashboard> typeSpec = Specification.where(null);
 
-    private static final String CURRENT_USER = "mk66440";
+            for (DashboardType type : dashboardTypes) {
+                Specification<Dashboard> subSpec = switch (type) {
+                    case MY_DASHBOARD ->
+                            (root, query, cb) -> cb.equal(root.get("user").get("name"), currentUserId);
+                    case CREATED_BY_OTHERS ->
+                            (root, query, cb) -> cb.notEqual(root.get("user").get("name"), currentUserId);
+                    case SYSTEM_DASHBOARD ->
+                            (root, query, cb) -> cb.isNull(root.get("user"));
+                };
 
-    private Users currentUserEntity;
-    private Users otherUserEntity;
+                // Combine multiple dashboard types with OR logic
+                typeSpec = (typeSpec == null) ? subSpec : typeSpec.or(subSpec);
+            }
 
-    @BeforeEach
-    void setup() {
-        currentUserEntity = new Users();
-        currentUserEntity.setName(CURRENT_USER);
+            spec = spec.and(typeSpec);
+        }
 
-        otherUserEntity = new Users();
-        otherUserEntity.setName("otherUser");
+        // 🧹 Exclude deleted dashboards unless explicitly requested
+        if (!deleted) {
+            spec = spec.and((root, query, cb) -> cb.isFalse(root.get("deleted")));
+        }
 
-        // Create sample dashboards
-        Dashboard myDashboard = createDashboard("Fusion Board", "My trading view", currentUserEntity, false);
-        Dashboard othersDashboard = createDashboard("Algo Board", "Other user's algo view", otherUserEntity, false);
-        Dashboard systemDashboard = createDashboard("Regression Monitor", "System default", null, false);
-        Dashboard deletedDashboard = createDashboard("Old Dashboard", "Soft deleted test", currentUserEntity, true);
-
-        dashboardRepository.saveAll(List.of(myDashboard, othersDashboard, systemDashboard, deletedDashboard));
-    }
-
-    private Dashboard createDashboard(String name, String desc, Users user, boolean deleted) {
-        Dashboard d = new Dashboard();
-        d.setName(name);
-        d.setDescription(desc);
-        d.setUser(user);
-        d.setDeleted(deleted);
-        return d;
-    }
-
-    // 1️⃣ MY_DASHBOARD — Only dashboards owned by current user
-    @Test
-    void shouldReturnOnlyMyDashboards_whenTypeIsMyDashboard() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.MY_DASHBOARD),
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder("Fusion Board")
-                .doesNotContain("Algo Board", "Regression Monitor", "Old Dashboard");
-    }
-
-    // 2️⃣ CREATED_BY_OTHERS — Dashboards owned by someone else
-    @Test
-    void shouldReturnDashboardsCreatedByOthers_whenTypeIsCreatedByOthers() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.CREATED_BY_OTHERS),
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder("Algo Board")
-                .doesNotContain("Fusion Board", "Regression Monitor", "Old Dashboard");
-    }
-
-    // 3️⃣ SYSTEM_DASHBOARD — Dashboards with null user
-    @Test
-    void shouldReturnSystemDashboards_whenTypeIsSystemDashboard() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.SYSTEM_DASHBOARD),
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder("Regression Monitor")
-                .doesNotContain("Fusion Board", "Algo Board", "Old Dashboard");
-    }
-
-    // 4️⃣ MULTIPLE TYPES — My dashboards + system dashboards
-    @Test
-    void shouldReturnMyAndSystemDashboards_whenMultipleTypesAreGiven() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.MY_DASHBOARD, DashboardType.SYSTEM_DASHBOARD),
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder("Fusion Board", "Regression Monitor")
-                .doesNotContain("Algo Board", "Old Dashboard");
-    }
-
-    // 5️⃣ SEARCH — Search by name or description (case-insensitive)
-    @Test
-    void shouldReturnDashboardsMatchingSearchTerm() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                "algo",
-                null,
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder("Algo Board");
-    }
-
-    // 6️⃣ DELETED — Should include deleted dashboards if deleted=true
-    @Test
-    void shouldIncludeDeletedDashboards_whenDeletedTrue() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.MY_DASHBOARD),
-                CURRENT_USER,
-                true);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .contains("Fusion Board", "Old Dashboard")
-                .doesNotContain("Algo Board", "Regression Monitor");
-    }
-
-    // 7️⃣ DEFAULT BEHAVIOR — Should exclude deleted dashboards if deleted=false
-    @Test
-    void shouldExcludeDeletedDashboards_whenDeletedFalse() {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.MY_DASHBOARD, DashboardType.SYSTEM_DASHBOARD),
-                CURRENT_USER,
-                false);
-
-        List<Dashboard> results = dashboardRepository.findAll(spec);
-
-        assertThat(results)
-                .extracting(Dashboard::getName)
-                .doesNotContain("Old Dashboard");
+        return spec;
     }
 }
-
 ```
