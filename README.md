@@ -1,4 +1,5 @@
 ```java
+
 /**
  * Specification for querying Dashboards based on search criteria and dashboard type.
  */
@@ -10,50 +11,53 @@ public class DashboardSpecification {
             String currentUserId,
             boolean deleted
     ) {
-        Specification<Dashboard> spec = Specification.where(null);
+        return (root, query, cb) -> {
+            // ✅ create reusable LEFT JOIN once
+            Join<Dashboard, Users> userJoin = root.join("user", JoinType.LEFT);
 
-        // 🔍 Search by name or description (case-insensitive)
-        if (StringUtils.hasText(search)) {
-            spec = spec.and((root, query, cb) ->
-                    cb.or(
-                            cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
-                            cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
-                    )
-            );
-        }
+            var predicates = cb.conjunction();
 
-        // 🧩 Dashboard type filtering with proper LEFT JOIN
-        if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
-            Specification<Dashboard> typeSpec = Specification.where(null);
-
-            for (DashboardType type : dashboardTypes) {
-                Specification<Dashboard> subSpec = (root, query, cb) -> {
-                    Join<Dashboard, Users> userJoin = root.join("user", JoinType.LEFT);
-
-                    return switch (type) {
-                        case MY_DASHBOARD ->
-                                cb.equal(userJoin.get("name"), currentUserId);
-                        case CREATED_BY_OTHERS ->
-                                cb.and(cb.isNotNull(userJoin.get("name")),
-                                        cb.notEqual(userJoin.get("name"), currentUserId));
-                        case SYSTEM_DASHBOARD ->
-                                cb.isNull(root.get("user"));
-                    };
-                };
-
-                // Combine multiple dashboard types with OR logic
-                typeSpec = (typeSpec == null) ? subSpec : typeSpec.or(subSpec);
+            // 🔍 Search filter
+            if (StringUtils.hasText(search)) {
+                predicates.getExpressions().add(
+                        cb.or(
+                                cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
+                                cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
+                        )
+                );
             }
 
-            spec = spec.and(typeSpec);
-        }
+            // 🧩 Dashboard type filtering (with single join)
+            if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
+                var typePredicates = cb.disjunction(); // OR logic between dashboard types
 
-        // 🧹 Exclude deleted dashboards unless explicitly requested
-        if (!deleted) {
-            spec = spec.and((root, query, cb) -> cb.isFalse(root.get("deleted")));
-        }
+                for (DashboardType type : dashboardTypes) {
+                    switch (type) {
+                        case MY_DASHBOARD -> typePredicates.getExpressions().add(
+                                cb.equal(userJoin.get("name"), currentUserId)
+                        );
+                        case CREATED_BY_OTHERS -> typePredicates.getExpressions().add(
+                                cb.and(
+                                        cb.isNotNull(userJoin.get("name")),
+                                        cb.notEqual(userJoin.get("name"), currentUserId)
+                                )
+                        );
+                        case SYSTEM_DASHBOARD -> typePredicates.getExpressions().add(
+                                cb.isNull(root.get("user"))
+                        );
+                    }
+                }
 
-        return spec;
+                predicates.getExpressions().add(typePredicates);
+            }
+
+            // 🧹 Deleted filter
+            if (!deleted) {
+                predicates.getExpressions().add(cb.isFalse(root.get("deleted")));
+            }
+
+            return predicates;
+        };
     }
 }
 ```
