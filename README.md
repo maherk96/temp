@@ -1,158 +1,59 @@
 ```java
-@AutoConfigureMockMvc
-@WebMvcTest(DashboardController.class)
-@ExtendWith(MockitoExtension.class)
-class DashboardControllerTest {
+/**
+ * Builds a Specification for querying Dashboards.
+ *
+ * @param search the search term to filter by name or description
+ * @param dashboardTypes the list of dashboard types to filter by (e.g., MY_DASHBOARD, CREATED_BY_OTHERS, SYSTEM_DASHBOARD)
+ * @param currentUserId the ID of the current user for filtering
+ * @param deleted whether to include deleted dashboards
+ * @return a Specification for querying Dashboards
+ */
+public static Specification<Dashboard> build(
+        String search,
+        List<DashboardType> dashboardTypes,
+        String currentUserId,
+        boolean deleted) {
 
-    @Autowired
-    private MockMvc mockMvc;
+    Specification<Dashboard> spec = Specification.where(null);
 
-    @MockBean
-    private DashboardManagementService dashboardManagementService;
-
-    // ✅ Helper factory method for mock DTOs
-    private DashboardResponseDTO createResponseDTO(long id, String name, boolean deleted) {
-        return new DashboardResponseDTO(id, "mk66440", name, "Description for " + name, deleted);
+    // 🔍 Search filter (name or description contains text)
+    if (StringUtils.hasText(search)) {
+        spec = spec.and((root, query, cb) -> cb.or(
+                cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
+                cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
+        ));
     }
 
-    private Page<DashboardResponseDTO> createPage(List<DashboardResponseDTO> dashboards, Pageable pageable) {
-        return new PageImpl<>(dashboards, pageable, dashboards.size());
+    // 🧩 Dashboard type filters (supports multiple)
+    if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
+        Specification<Dashboard> typeSpec = Specification.where(null);
+
+        for (DashboardType type : dashboardTypes) {
+            Specification<Dashboard> subSpec = switch (type) {
+                case MY_DASHBOARD -> (root, query, cb) ->
+                        cb.equal(root.get("userId"), Long.valueOf(currentUserId));
+
+                case CREATED_BY_OTHERS -> (root, query, cb) ->
+                        cb.and(
+                                cb.isNotNull(root.get("userId")),
+                                cb.notEqual(root.get("userId"), Long.valueOf(currentUserId))
+                        );
+
+                case SYSTEM_DASHBOARD -> (root, query, cb) ->
+                        cb.isNull(root.get("userId"));
+            };
+            typeSpec = (typeSpec == null) ? subSpec : typeSpec.or(subSpec);
+        }
+
+        spec = spec.and(typeSpec);
     }
 
-    // ✅ 1. Default paginated response
-    @Test
-    void getDashboards_shouldReturnPaginatedResponse() throws Exception {
-        int page = 1, size = 10;
-        var pageable = PageRequest.of(page - 1, size);
-        var dashboards = List.of(
-                createResponseDTO(1L, "Dash 1", false),
-                createResponseDTO(2L, "Dash 2", false)
-        );
-        var dashboardPage = createPage(dashboards, pageable);
-
-        when(dashboardManagementService.findAll(
-                isNull(), isNull(), anyString(), eq(false), eq(pageable)))
-                .thenReturn(dashboardPage);
-
-        mockMvc.perform(get("/api/dashboard")
-                        .param("page", String.valueOf(page))
-                        .param("size", String.valueOf(size))
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.data[0].dashboardName").value("Dash 1"))
-                .andExpect(jsonPath("$.data[0].isDeleted").value(false))
-                .andExpect(jsonPath("$.data[1].dashboardName").value("Dash 2"))
-                .andExpect(jsonPath("$.total").value(2));
-
-        verify(dashboardManagementService).findAll(
-                isNull(), isNull(), anyString(), eq(false), eq(pageable));
+    // 🚫 Deleted filter (by default exclude deleted)
+    if (!deleted) {
+        spec = spec.and((root, query, cb) -> cb.isFalse(root.get("deleted")));
     }
 
-    // ✅ 2. Search filter
-    @Test
-    void getDashboards_shouldFilterBySearchTerm() throws Exception {
-        int page = 1, size = 5;
-        String search = "sales";
-        var pageable = PageRequest.of(page - 1, size);
-        var dashboards = List.of(createResponseDTO(1L, "Sales Report", false));
-        var dashboardPage = createPage(dashboards, pageable);
-
-        when(dashboardManagementService.findAll(
-                eq(search), isNull(), anyString(), eq(false), eq(pageable)))
-                .thenReturn(dashboardPage);
-
-        mockMvc.perform(get("/api/dashboard")
-                        .param("page", String.valueOf(page))
-                        .param("size", String.valueOf(size))
-                        .param("search", search))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].dashboardName").value("Sales Report"))
-                .andExpect(jsonPath("$.total").value(1));
-
-        verify(dashboardManagementService).findAll(
-                eq(search), isNull(), anyString(), eq(false), eq(pageable));
-    }
-
-    // ✅ 3. DashboardType filter (MY_DASHBOARDS)
-    @Test
-    void getDashboards_shouldFilterMyDashboards() throws Exception {
-        int page = 1, size = 10;
-        String dashboardType = "MY_DASHBOARDS";
-        var pageable = PageRequest.of(page - 1, size);
-        var dashboards = List.of(createResponseDTO(1L, "My Dash", false));
-        var dashboardPage = createPage(dashboards, pageable);
-
-        when(dashboardManagementService.findAll(
-                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable)))
-                .thenReturn(dashboardPage);
-
-        mockMvc.perform(get("/api/dashboard")
-                        .param("dashboardType", dashboardType)
-                        .param("page", String.valueOf(page))
-                        .param("size", String.valueOf(size)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].dashboardName").value("My Dash"))
-                .andExpect(jsonPath("$.total").value(1));
-
-        verify(dashboardManagementService).findAll(
-                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable));
-    }
-
-    // ✅ 4. DashboardType = SYSTEM_DASHBOARDS
-    @Test
-    void getDashboards_shouldFilterSystemDashboards() throws Exception {
-        int page = 1, size = 10;
-        String dashboardType = "SYSTEM_DASHBOARDS";
-        var pageable = PageRequest.of(page - 1, size);
-        var dashboards = List.of(createResponseDTO(3L, "Ops Board", true));
-        var dashboardPage = createPage(dashboards, pageable);
-
-        when(dashboardManagementService.findAll(
-                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable)))
-                .thenReturn(dashboardPage);
-
-        mockMvc.perform(get("/api/dashboard")
-                        .param("dashboardType", dashboardType)
-                        .param("page", String.valueOf(page))
-                        .param("size", String.valueOf(size)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].dashboardName").value("Ops Board"))
-                .andExpect(jsonPath("$.data[0].isDeleted").value(true))
-                .andExpect(jsonPath("$.total").value(1));
-
-        verify(dashboardManagementService).findAll(
-                isNull(), eq(dashboardType), anyString(), eq(false), eq(pageable));
-    }
-
-    // ✅ 5. Deleted = true
-    @Test
-    void getDashboards_shouldIncludeDeleted_whenRequested() throws Exception {
-        int page = 1, size = 10;
-        boolean deleted = true;
-        var pageable = PageRequest.of(page - 1, size);
-        var dashboards = List.of(
-                createResponseDTO(1L, "Dash 1", false),
-                createResponseDTO(2L, "Deleted Dash", true)
-        );
-        var dashboardPage = createPage(dashboards, pageable);
-
-        when(dashboardManagementService.findAll(
-                isNull(), isNull(), anyString(), eq(deleted), eq(pageable)))
-                .thenReturn(dashboardPage);
-
-        mockMvc.perform(get("/api/dashboard")
-                        .param("deleted", "true")
-                        .param("page", String.valueOf(page))
-                        .param("size", String.valueOf(size)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
-                .andExpect(jsonPath("$.data[1].isDeleted").value(true))
-                .andExpect(jsonPath("$.total").value(2));
-
-        verify(dashboardManagementService).findAll(
-                isNull(), isNull(), anyString(), eq(deleted), eq(pageable));
-    }
+    return spec;
 }
 
 ```
