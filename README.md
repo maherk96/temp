@@ -1,22 +1,9 @@
 ```java
-
-
-
 /**
  * Specification for querying Dashboards based on search criteria and dashboard type.
  */
 public class DashboardSpecification {
 
-    /**
-     * Builds a Specification for querying Dashboards.
-     *
-     * @param search          the search term to filter by name or description
-     * @param dashboardTypes  the list of dashboard types to filter by
-     *                        (e.g., MY_DASHBOARD, CREATED_BY_OTHERS, SYSTEM_DASHBOARD)
-     * @param currentUserId   the ID (SOEID / username) of the current user
-     * @param deleted         whether to include deleted dashboards
-     * @return a Specification for querying Dashboards
-     */
     public static Specification<Dashboard> build(
             String search,
             List<DashboardType> dashboardTypes,
@@ -35,18 +22,23 @@ public class DashboardSpecification {
             );
         }
 
-        // 🧩 Filter by dashboard types (MY, OTHERS, SYSTEM)
+        // 🧩 Dashboard type filtering with proper LEFT JOIN
         if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
             Specification<Dashboard> typeSpec = Specification.where(null);
 
             for (DashboardType type : dashboardTypes) {
-                Specification<Dashboard> subSpec = switch (type) {
-                    case MY_DASHBOARD ->
-                            (root, query, cb) -> cb.equal(root.get("user").get("name"), currentUserId);
-                    case CREATED_BY_OTHERS ->
-                            (root, query, cb) -> cb.notEqual(root.get("user").get("name"), currentUserId);
-                    case SYSTEM_DASHBOARD ->
-                            (root, query, cb) -> cb.isNull(root.get("user"));
+                Specification<Dashboard> subSpec = (root, query, cb) -> {
+                    Join<Dashboard, Users> userJoin = root.join("user", JoinType.LEFT);
+
+                    return switch (type) {
+                        case MY_DASHBOARD ->
+                                cb.equal(userJoin.get("name"), currentUserId);
+                        case CREATED_BY_OTHERS ->
+                                cb.and(cb.isNotNull(userJoin.get("name")),
+                                        cb.notEqual(userJoin.get("name"), currentUserId));
+                        case SYSTEM_DASHBOARD ->
+                                cb.isNull(root.get("user"));
+                    };
                 };
 
                 // Combine multiple dashboard types with OR logic
