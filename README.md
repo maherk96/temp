@@ -1,63 +1,58 @@
 ```java
+public enum DashboardType { MY_DASHBOARD, CREATED_BY_OTHERS, SYSTEM_DASHBOARD }
 
-/**
- * Specification for querying Dashboards based on search criteria and dashboard type.
- */
-public class DashboardSpecification {
+public final class DashboardSpecification {
+    private static final String SYSTEM_SOEID = "system";
 
     public static Specification<Dashboard> build(
             String search,
             List<DashboardType> dashboardTypes,
-            String currentUserId,
-            boolean deleted
+            String currentUserSoeid,
+            boolean includeDeleted
     ) {
-        return (root, query, cb) -> {
-            // ✅ create reusable LEFT JOIN once
-            Join<Dashboard, Users> userJoin = root.join("user", JoinType.LEFT);
+        Specification<Dashboard> spec = Specification.where(null);
 
-            var predicates = cb.conjunction();
+        // search (case-insensitive on name/description)
+        if (org.springframework.util.StringUtils.hasText(search)) {
+            String q = "%" + search.toLowerCase() + "%";
+            spec = spec.and((root, query, cb) ->
+                    cb.or(
+                        cb.like(cb.lower(root.get("name")), q),
+                        cb.like(cb.lower(root.get("description")), q)
+                    )
+            );
+        }
 
-            // 🔍 Search filter
-            if (StringUtils.hasText(search)) {
-                predicates.getExpressions().add(
-                        cb.or(
-                                cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
-                                cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
-                        )
-                );
-            }
+        // type filtering (OR across types)
+        if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
+            Specification<Dashboard> typeSpec = Specification.where(null);
 
-            // 🧩 Dashboard type filtering (with single join)
-            if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
-                var typePredicates = cb.disjunction(); // OR logic between dashboard types
+            for (DashboardType t : dashboardTypes) {
+                Specification<Dashboard> one = switch (t) {
+                    case MY_DASHBOARD ->
+                        (root, q, cb) -> cb.equal(root.get("user").get("name"), currentUserSoeid);
 
-                for (DashboardType type : dashboardTypes) {
-                    switch (type) {
-                        case MY_DASHBOARD -> typePredicates.getExpressions().add(
-                                cb.equal(userJoin.get("name"), currentUserId)
+                    case CREATED_BY_OTHERS ->
+                        (root, q, cb) -> cb.and(
+                                cb.notEqual(root.get("user").get("name"), currentUserSoeid),
+                                cb.notEqual(root.get("user").get("name"), SYSTEM_SOEID)
                         );
-                        case CREATED_BY_OTHERS -> typePredicates.getExpressions().add(
-                                cb.and(
-                                        cb.isNotNull(userJoin.get("name")),
-                                        cb.notEqual(userJoin.get("name"), currentUserId)
-                                )
-                        );
-                        case SYSTEM_DASHBOARD -> typePredicates.getExpressions().add(
-                                cb.isNull(root.get("user"))
-                        );
-                    }
-                }
 
-                predicates.getExpressions().add(typePredicates);
+                    case SYSTEM_DASHBOARD ->
+                        (root, q, cb) -> cb.equal(root.get("user").get("name"), SYSTEM_SOEID);
+                };
+                typeSpec = (typeSpec == null) ? one : typeSpec.or(one);
             }
+            spec = spec.and(typeSpec);
+        }
 
-            // 🧹 Deleted filter
-            if (!deleted) {
-                predicates.getExpressions().add(cb.isFalse(root.get("deleted")));
-            }
-
-            return predicates;
-        };
+        if (!includeDeleted) {
+            spec = spec.and((root, q, cb) -> cb.isFalse(root.get("deleted")));
+        }
+        return spec;
     }
+
+    private DashboardSpecification() {}
 }
+
 ```
