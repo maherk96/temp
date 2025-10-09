@@ -1,59 +1,43 @@
 ```java
-/**
- * Builds a Specification for querying Dashboards.
- *
- * @param search the search term to filter by name or description
- * @param dashboardTypes the list of dashboard types to filter by (e.g., MY_DASHBOARD, CREATED_BY_OTHERS, SYSTEM_DASHBOARD)
- * @param currentUserId the ID of the current user for filtering
- * @param deleted whether to include deleted dashboards
- * @return a Specification for querying Dashboards
- */
-public static Specification<Dashboard> build(
-        String search,
-        List<DashboardType> dashboardTypes,
-        String currentUserId,
-        boolean deleted) {
+@Test
+void getDashboards_shouldFilterMultipleDashboardTypes() throws Exception {
+    // Arrange
+    int page = 1;
+    int size = 10;
 
-    Specification<Dashboard> spec = Specification.where(null);
+    // Simulate multiple dashboard types (user + system dashboards)
+    var dashboardTypes = List.of(DashboardType.MY_DASHBOARD, DashboardType.SYSTEM_DASHBOARD);
 
-    // 🔍 Search filter (name or description contains text)
-    if (StringUtils.hasText(search)) {
-        spec = spec.and((root, query, cb) -> cb.or(
-                cb.like(cb.lower(root.get("name")), "%" + search.toLowerCase() + "%"),
-                cb.like(cb.lower(root.get("description")), "%" + search.toLowerCase() + "%")
-        ));
-    }
+    var pageable = PageRequest.of(page - 1, size);
 
-    // 🧩 Dashboard type filters (supports multiple)
-    if (dashboardTypes != null && !dashboardTypes.isEmpty()) {
-        Specification<Dashboard> typeSpec = Specification.where(null);
+    var dashboards = List.of(
+            createResponseDTO(1L, "My Dash", false),      // mk66440’s dashboard
+            createResponseDTO(2L, "System Dash", false)   // system dashboard (no user)
+    );
 
-        for (DashboardType type : dashboardTypes) {
-            Specification<Dashboard> subSpec = switch (type) {
-                case MY_DASHBOARD -> (root, query, cb) ->
-                        cb.equal(root.get("userId"), Long.valueOf(currentUserId));
+    var dashboardPage = createPage(dashboards, pageable);
 
-                case CREATED_BY_OTHERS -> (root, query, cb) ->
-                        cb.and(
-                                cb.isNotNull(root.get("userId")),
-                                cb.notEqual(root.get("userId"), Long.valueOf(currentUserId))
-                        );
+    when(dashboardManagementService.findAll(
+            isNull(), eq(dashboardTypes), anyString(), eq(false), eq(pageable)))
+            .thenReturn(dashboardPage);
 
-                case SYSTEM_DASHBOARD -> (root, query, cb) ->
-                        cb.isNull(root.get("userId"));
-            };
-            typeSpec = (typeSpec == null) ? subSpec : typeSpec.or(subSpec);
-        }
+    // Act
+    mockMvc.perform(get("/api/dashboard")
+                    .param("dashboardType", dashboardTypes.stream()
+                            .map(Enum::name)
+                            .toArray(String[]::new))
+                    .param("page", String.valueOf(page))
+                    .param("size", String.valueOf(size)))
+            // Assert
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.length()").value(2))
+            .andExpect(jsonPath("$.data[0].dashboardName").value("My Dash"))
+            .andExpect(jsonPath("$.data[1].dashboardName").value("System Dash"))
+            .andExpect(jsonPath("$.total").value(2));
 
-        spec = spec.and(typeSpec);
-    }
-
-    // 🚫 Deleted filter (by default exclude deleted)
-    if (!deleted) {
-        spec = spec.and((root, query, cb) -> cb.isFalse(root.get("deleted")));
-    }
-
-    return spec;
+    // Verify
+    verify(dashboardManagementService, times(1))
+            .findAll(isNull(), eq(dashboardTypes), anyString(), eq(false), eq(pageable));
 }
 
 ```
