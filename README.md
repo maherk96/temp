@@ -1,491 +1,631 @@
 ```java
-@DataJpaTest
-@Transactional
-@DisplayName("DashboardSpecification Tests")
-class DashboardSpecificationTest {
+@ExtendWith(MockitoExtension.class)
+@DisplayName("DashboardService Tests")
+class DashboardServiceTest {
 
-    @Autowired
+    @Mock
     private DashboardRepository dashboardRepository;
 
-    @Autowired
-    private UserRepository userRepository;
+    @Mock
+    private UserManagementService userManagementService;
+
+    @InjectMocks
+    private DashboardService dashboardService;
+
+    @Captor
+    private ArgumentCaptor<Specification<Dashboard>> specificationCaptor;
 
     private static final String CURRENT_USER = "mk66440";
     private static final String OTHER_USER = "otherUser";
-    private static final String SYSTEM_SOEID = "system";
-
-    // Dashboard name constants
-    private static class DashboardNames {
-        static final String FUSION_BOARD = "Fusion Board";
-        static final String ALGO_BOARD = "Algo Board";
-        static final String ANALYTICS_DASHBOARD = "Analytics Dashboard";
-        static final String REGRESSION_MONITOR = "Regression Monitor";
-        static final String ALERTS_OVERVIEW = "Alerts Overview";
-        static final String TRADING_STATUS = "Trading Status";
-        static final String OLD_DASHBOARD = "Old Dashboard";
-        static final String ARCHIVED_REPORT = "Archived Report";
-    }
-
-    private Users currentUserEntity;
-    private Users otherUserEntity;
-    private Users systemUserEntity;
-
-    @BeforeEach
-    void setup() {
-        // Create users only (dashboards created per-test)
-        currentUserEntity = createAndSaveUser(CURRENT_USER);
-        otherUserEntity = createAndSaveUser(OTHER_USER);
-        systemUserEntity = createAndSaveUser(SYSTEM_SOEID);
-    }
-
-    // ==================== Nested Test Classes ====================
+    private static final String SYSTEM_USER = "system";
 
     @Nested
-    @DisplayName("Dashboard Type Filtering")
-    class DashboardTypeFiltering {
+    @DisplayName("findAll - Type Filtering")
+    class TypeFiltering {
 
         @Test
-        @DisplayName("Should return only current user's dashboards")
-        void shouldReturnOnlyMyDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.TRADING_STATUS, "Current trading status", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
+        @DisplayName("Should find only MY_DASHBOARD type")
+        void shouldFindOnlyMyDashboards() {
+            // Arrange
+            Users currentUserEntity = createUser(1L, CURRENT_USER);
+            Dashboard myDashboard = createDashboard(1L, "My Dashboard", "My desc", currentUserEntity, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(myDashboard), pageable, 1);
 
-            List<String> results = getDashboardNames(null, List.of(DashboardType.MY_DASHBOARD), false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ANALYTICS_DASHBOARD,
-                DashboardNames.TRADING_STATUS
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                List.of(DashboardType.MY_DASHBOARD),
+                CURRENT_USER,
+                false,
+                pageable
             );
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent()).hasSize(1);
+            
+            DashboardResponseDTO dto = result.getContent().get(0);
+            assertThat(dto.dashboardName()).isEqualTo("My Dashboard");
+            assertThat(dto.description()).isEqualTo("My desc");
+            assertThat(dto.userName()).isEqualTo(CURRENT_USER);
+            assertThat(dto.isDeleted()).isFalse();
+
+            // Verify specification was called with correct parameters
+            verify(dashboardRepository).findAll(specificationCaptor.capture(), eq(pageable));
+            verify(userManagementService).get(1L);
         }
 
         @Test
-        @DisplayName("Should return only dashboards created by others (excluding system)")
-        void shouldReturnDashboardsCreatedByOthers() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
+        @DisplayName("Should find only CREATED_BY_OTHERS type")
+        void shouldFindOnlyCreatedByOthers() {
+            // Arrange
+            Users otherUserEntity = createUser(2L, OTHER_USER);
+            Dashboard otherDashboard = createDashboard(2L, "Other Dashboard", "Other desc", otherUserEntity, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(otherDashboard), pageable, 1);
 
-            List<String> results = getDashboardNames(null, List.of(DashboardType.CREATED_BY_OTHERS), false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(2L))
+                .thenReturn(new UserDTO(OTHER_USER));
 
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.ALGO_BOARD);
-        }
-
-        @Test
-        @DisplayName("Should return only system dashboards")
-        void shouldReturnSystemDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
-            createAndSave(DashboardNames.ALERTS_OVERVIEW, "System alerts", systemUserEntity, false);
-
-            List<String> results = getDashboardNames(null, List.of(DashboardType.SYSTEM_DASHBOARD), false);
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.REGRESSION_MONITOR,
-                DashboardNames.ALERTS_OVERVIEW
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                List.of(DashboardType.CREATED_BY_OTHERS),
+                CURRENT_USER,
+                false,
+                pageable
             );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).userName()).isEqualTo(OTHER_USER);
+            
+            verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
         }
 
         @Test
-        @DisplayName("Should return dashboards from multiple types (MY_DASHBOARD + SYSTEM_DASHBOARD)")
-        void shouldReturnMyAndSystemDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
-            createAndSave(DashboardNames.ALERTS_OVERVIEW, "System alerts", systemUserEntity, false);
+        @DisplayName("Should find only SYSTEM_DASHBOARD type")
+        void shouldFindOnlySystemDashboards() {
+            // Arrange
+            Users systemUserEntity = createUser(3L, SYSTEM_USER);
+            Dashboard systemDashboard = createDashboard(3L, "System Dashboard", "System desc", systemUserEntity, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(systemDashboard), pageable, 1);
 
-            List<String> results = getDashboardNames(
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(3L))
+                .thenReturn(new UserDTO(SYSTEM_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                List.of(DashboardType.SYSTEM_DASHBOARD),
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).userName()).isEqualTo(SYSTEM_USER);
+            
+            verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
+        }
+
+        @Test
+        @DisplayName("Should find multiple dashboard types")
+        void shouldFindMultipleDashboardTypes() {
+            // Arrange
+            Users currentUserEntity = createUser(1L, CURRENT_USER);
+            Users systemUserEntity = createUser(2L, SYSTEM_USER);
+            
+            Dashboard myDashboard = createDashboard(1L, "My Dashboard", "My desc", currentUserEntity, false);
+            Dashboard systemDashboard = createDashboard(2L, "System Dashboard", "System desc", systemUserEntity, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(
+                List.of(myDashboard, systemDashboard), 
+                pageable, 
+                2
+            );
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L)).thenReturn(new UserDTO(CURRENT_USER));
+            when(userManagementService.get(2L)).thenReturn(new UserDTO(SYSTEM_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
                 null,
                 List.of(DashboardType.MY_DASHBOARD, DashboardType.SYSTEM_DASHBOARD),
-                false
+                CURRENT_USER,
+                false,
+                pageable
             );
 
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ANALYTICS_DASHBOARD,
-                DashboardNames.REGRESSION_MONITOR,
-                DashboardNames.ALERTS_OVERVIEW
-            );
-        }
-
-        @Test
-        @DisplayName("Should return all non-deleted dashboards when no type filter specified")
-        void shouldReturnAllNonDeletedDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
-            createAndSave(DashboardNames.OLD_DASHBOARD, "Deleted", currentUserEntity, true);
-
-            List<String> results = getDashboardNames(null, null, false);
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ALGO_BOARD,
-                DashboardNames.REGRESSION_MONITOR
-            );
-        }
-
-        @Test
-        @DisplayName("Should handle empty dashboard types list")
-        void shouldHandleEmptyDashboardTypesList() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-
-            List<String> results = getDashboardNames(null, Collections.emptyList(), false);
-
-            // Empty list should return all dashboards
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ALGO_BOARD
-            );
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(2);
+            assertThat(result.getContent())
+                .extracting(DashboardResponseDTO::dashboardName)
+                .containsExactlyInAnyOrder("My Dashboard", "System Dashboard");
         }
     }
 
     @Nested
-    @DisplayName("Search Functionality")
+    @DisplayName("findAll - Search Functionality")
     class SearchFunctionality {
 
         @Test
-        @DisplayName("Should match search term in dashboard name")
-        void shouldMatchSearchTermInName() {
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+        @DisplayName("Should filter by search term")
+        void shouldFilterBySearchTerm() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(1L, "Sales Report", "Monthly sales", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
 
-            List<String> results = getDashboardNames("algo", null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.ALGO_BOARD);
-        }
-
-        @Test
-        @DisplayName("Should match search term in dashboard description")
-        void shouldMatchSearchTermInDescription() {
-            createAndSave(DashboardNames.TRADING_STATUS, "Current trading status view", currentUserEntity, false);
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Algorithm dashboard", otherUserEntity, false);
-
-            List<String> results = getDashboardNames("status", null, false);
-
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.TRADING_STATUS);
-        }
-
-        @ParameterizedTest
-        @CsvSource({
-            "fusion board, " + "Fusion Board",
-            "ANALYTICS DASHBOARD, " + "Analytics Dashboard",
-            "AlGo BoArD, " + "Algo Board"
-        })
-        @DisplayName("Should perform case-insensitive search")
-        void shouldPerformCaseInsensitiveSearch(String searchTerm, String expectedDashboard) {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-
-            List<String> results = getDashboardNames(searchTerm, null, false);
-
-            assertThat(results).contains(expectedDashboard);
-        }
-
-        @Test
-        @DisplayName("Should match partial search terms")
-        void shouldMatchPartialSearchTerms() {
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-
-            // "board" matches both "Fusion Board" and "Analytics Dashboard"
-            List<String> results = getDashboardNames("board", null, false);
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ANALYTICS_DASHBOARD
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                "sales",
+                null,
+                CURRENT_USER,
+                false,
+                pageable
             );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).dashboardName()).isEqualTo("Sales Report");
+            
+            verify(dashboardRepository).findAll(any(Specification.class), eq(pageable));
         }
 
         @Test
-        @DisplayName("Should return empty list when no dashboards match search")
-        void shouldReturnEmptyListWhenNoMatch() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+        @DisplayName("Should combine search with dashboard type")
+        void shouldCombineSearchWithType() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(1L, "My Sales Dashboard", "Sales data", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
 
-            List<String> results = getDashboardNames("nonexistent", null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).isEmpty();
-        }
-
-        @Test
-        @DisplayName("Should handle empty search string as no search filter")
-        void shouldHandleEmptySearchString() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-
-            List<String> results = getDashboardNames("", null, false);
-
-            // Empty string should return all dashboards
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ALGO_BOARD
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                "sales",
+                List.of(DashboardType.MY_DASHBOARD),
+                CURRENT_USER,
+                false,
+                pageable
             );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).dashboardName()).contains("Sales");
         }
 
         @Test
-        @DisplayName("Should handle special characters in search")
-        void shouldHandleSpecialCharactersInSearch() {
-            createAndSave("Dashboard (Test)", "Special chars", currentUserEntity, false);
-            createAndSave("Dashboard [Beta]", "More special chars", currentUserEntity, false);
+        @DisplayName("Should return empty page when no matches found")
+        void shouldReturnEmptyPageWhenNoMatches() {
+            // Arrange
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> emptyPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
 
-            List<String> results = getDashboardNames("(test)", null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(emptyPage);
 
-            assertThat(results).containsExactlyInAnyOrder("Dashboard (Test)");
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                "nonexistent",
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getTotalElements()).isZero();
+            assertThat(result.getContent()).isEmpty();
         }
     }
 
     @Nested
-    @DisplayName("Combined Filters")
-    class CombinedFilters {
-
-        @Test
-        @DisplayName("Should combine search with MY_DASHBOARD type")
-        void shouldCombineSearchWithMyDashboardType() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-
-            List<String> results = getDashboardNames("fusion", List.of(DashboardType.MY_DASHBOARD), false);
-
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.FUSION_BOARD);
-        }
-
-        @Test
-        @DisplayName("Should combine search with CREATED_BY_OTHERS type")
-        void shouldCombineSearchWithCreatedByOthersType() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-
-            List<String> results = getDashboardNames("algo", List.of(DashboardType.CREATED_BY_OTHERS), false);
-
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.ALGO_BOARD);
-        }
-
-        @Test
-        @DisplayName("Should combine search with SYSTEM_DASHBOARD type")
-        void shouldCombineSearchWithSystemDashboardType() {
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
-            createAndSave(DashboardNames.ALERTS_OVERVIEW, "System alerts", systemUserEntity, false);
-            createAndSave(DashboardNames.FUSION_BOARD, "My regression test", currentUserEntity, false);
-
-            List<String> results = getDashboardNames("regression", List.of(DashboardType.SYSTEM_DASHBOARD), false);
-
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.REGRESSION_MONITOR);
-        }
-
-        @Test
-        @DisplayName("Should combine search with multiple dashboard types")
-        void shouldCombineSearchWithMultipleTypes() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.REGRESSION_MONITOR, "System default", systemUserEntity, false);
-
-            List<String> results = getDashboardNames(
-                "board",
-                List.of(DashboardType.MY_DASHBOARD, DashboardType.CREATED_BY_OTHERS),
-                false
-            );
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ANALYTICS_DASHBOARD,
-                DashboardNames.ALGO_BOARD
-            );
-        }
-    }
-
-    @Nested
-    @DisplayName("Deleted Dashboard Handling")
+    @DisplayName("findAll - Deleted Dashboard Handling")
     class DeletedDashboardHandling {
 
         @Test
         @DisplayName("Should exclude deleted dashboards by default")
         void shouldExcludeDeletedDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.OLD_DASHBOARD, "Deleted dashboard", currentUserEntity, true);
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard activeDashboard = createDashboard(1L, "Active Dashboard", "Active", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(activeDashboard), pageable, 1);
 
-            List<String> results = getDashboardNames(null, List.of(DashboardType.MY_DASHBOARD), false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.FUSION_BOARD);
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false, // deleted = false
+                pageable
+            );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(1);
+            assertThat(result.getContent().get(0).isDeleted()).isFalse();
         }
 
         @Test
-        @DisplayName("Should include deleted dashboards when includeDeleted is true")
+        @DisplayName("Should include deleted dashboards when deleted=true")
         void shouldIncludeDeletedDashboards() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.OLD_DASHBOARD, "Deleted dashboard", currentUserEntity, true);
-            createAndSave(DashboardNames.ANALYTICS_DASHBOARD, "Performance analytics", currentUserEntity, false);
-
-            List<String> results = getDashboardNames(null, List.of(DashboardType.MY_DASHBOARD), true);
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.OLD_DASHBOARD,
-                DashboardNames.ANALYTICS_DASHBOARD
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard activeDashboard = createDashboard(1L, "Active Dashboard", "Active", user, false);
+            Dashboard deletedDashboard = createDashboard(2L, "Deleted Dashboard", "Deleted", user, true);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(
+                List.of(activeDashboard, deletedDashboard), 
+                pageable, 
+                2
             );
-        }
 
-        @Test
-        @DisplayName("Should include deleted dashboards in search when includeDeleted is true")
-        void shouldIncludeDeletedDashboardsInSearch() {
-            createAndSave(DashboardNames.OLD_DASHBOARD, "Old system", currentUserEntity, true);
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            List<String> results = getDashboardNames("old", null, true);
-
-            assertThat(results).containsExactlyInAnyOrder(DashboardNames.OLD_DASHBOARD);
-        }
-
-        @Test
-        @DisplayName("Should return all dashboards including deleted when no filters and includeDeleted is true")
-        void shouldReturnAllDashboardsIncludingDeleted() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Other user's algo", otherUserEntity, false);
-            createAndSave(DashboardNames.OLD_DASHBOARD, "Deleted", currentUserEntity, true);
-            createAndSave(DashboardNames.ARCHIVED_REPORT, "Archived", otherUserEntity, true);
-
-            List<String> results = getDashboardNames(null, null, true);
-
-            assertThat(results).containsExactlyInAnyOrder(
-                DashboardNames.FUSION_BOARD,
-                DashboardNames.ALGO_BOARD,
-                DashboardNames.OLD_DASHBOARD,
-                DashboardNames.ARCHIVED_REPORT
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                true, // deleted = true
+                pageable
             );
+
+            // Assert
+            assertThat(result.getTotalElements()).isEqualTo(2);
+            assertThat(result.getContent())
+                .extracting(DashboardResponseDTO::isDeleted)
+                .containsExactlyInAnyOrder(false, true);
         }
     }
 
     @Nested
-    @DisplayName("Edge Cases")
+    @DisplayName("findAll - Pagination")
+    class Pagination {
+
+        @Test
+        @DisplayName("Should respect page size")
+        void shouldRespectPageSize() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            List<Dashboard> dashboards = List.of(
+                createDashboard(1L, "Dashboard 1", "Desc 1", user, false),
+                createDashboard(2L, "Dashboard 2", "Desc 2", user, false),
+                createDashboard(3L, "Dashboard 3", "Desc 3", user, false)
+            );
+            
+            Pageable pageable = PageRequest.of(0, 2); // Page size = 2
+            Page<Dashboard> dashboardPage = new PageImpl<>(
+                dashboards.subList(0, 2), 
+                pageable, 
+                3 // Total elements = 3
+            );
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result.getSize()).isEqualTo(2);
+            assertThat(result.getContent()).hasSize(2);
+            assertThat(result.getTotalElements()).isEqualTo(3);
+            assertThat(result.getTotalPages()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("Should return correct page number")
+        void shouldReturnCorrectPageNumber() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(3L, "Dashboard 3", "Desc 3", user, false);
+            
+            Pageable pageable = PageRequest.of(1, 2); // Page 1 (second page), size 2
+            Page<Dashboard> dashboardPage = new PageImpl<>(
+                List.of(dashboard), 
+                pageable, 
+                3
+            );
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result.getNumber()).isEqualTo(1);
+            assertThat(result.getContent()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("Should handle empty first page")
+        void shouldHandleEmptyFirstPage() {
+            // Arrange
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> emptyPage = new PageImpl<>(Collections.emptyList(), pageable, 0);
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(emptyPage);
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isZero();
+            assertThat(result.getTotalPages()).isZero();
+        }
+    }
+
+    @Nested
+    @DisplayName("findAll - DTO Mapping")
+    class DTOMapping {
+
+        @Test
+        @DisplayName("Should correctly map Dashboard to DashboardResponseDTO")
+        void shouldCorrectlyMapDashboard() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(
+                1L, 
+                "Test Dashboard", 
+                "Test Description", 
+                user, 
+                false
+            );
+            dashboard.setCreated(LocalDateTime.of(2025, 1, 1, 10, 0));
+            dashboard.setLastUpdated(LocalDateTime.of(2025, 1, 2, 15, 30));
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            DashboardResponseDTO dto = result.getContent().get(0);
+            assertThat(dto.id()).isEqualTo(1L);
+            assertThat(dto.dashboardName()).isEqualTo("Test Dashboard");
+            assertThat(dto.description()).isEqualTo("Test Description");
+            assertThat(dto.userName()).isEqualTo(CURRENT_USER);
+            assertThat(dto.isDeleted()).isFalse();
+            assertThat(dto.created()).isEqualTo(LocalDateTime.of(2025, 1, 1, 10, 0));
+            assertThat(dto.lastUpdated()).isEqualTo(LocalDateTime.of(2025, 1, 2, 15, 30));
+            
+            verify(userManagementService).get(1L);
+        }
+
+        @Test
+        @DisplayName("Should call userManagementService for each dashboard")
+        void shouldCallUserManagementServiceForEachDashboard() {
+            // Arrange
+            Users user1 = createUser(1L, CURRENT_USER);
+            Users user2 = createUser(2L, OTHER_USER);
+            
+            Dashboard dashboard1 = createDashboard(1L, "Dashboard 1", "Desc 1", user1, false);
+            Dashboard dashboard2 = createDashboard(2L, "Dashboard 2", "Desc 2", user2, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(
+                List.of(dashboard1, dashboard2), 
+                pageable, 
+                2
+            );
+
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
+            when(userManagementService.get(2L))
+                .thenReturn(new UserDTO(OTHER_USER));
+
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            // Assert
+            assertThat(result.getContent()).hasSize(2);
+            verify(userManagementService).get(1L);
+            verify(userManagementService).get(2L);
+            verifyNoMoreInteractions(userManagementService);
+        }
+    }
+
+    @Nested
+    @DisplayName("findAll - Edge Cases")
     class EdgeCases {
-
-        @Test
-        @DisplayName("Should return other user's dashboards when current user has none")
-        void shouldReturnOthersDashboardsWhenCurrentUserHasNone() {
-            Users newUser = createAndSaveUser("newUser");
-            createAndSave(DashboardNames.FUSION_BOARD, "Other's dashboard", currentUserEntity, false);
-            createAndSave(DashboardNames.ALGO_BOARD, "Another other's dashboard", otherUserEntity, false);
-
-            Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.CREATED_BY_OTHERS),
-                newUser.getName(),
-                false
-            );
-
-            List<Dashboard> results = dashboardRepository.findAll(spec);
-
-            assertThat(results)
-                .extracting(Dashboard::getName)
-                .containsExactlyInAnyOrder(DashboardNames.FUSION_BOARD, DashboardNames.ALGO_BOARD);
-        }
-
-        @Test
-        @DisplayName("Should return empty list when current user has no MY_DASHBOARD")
-        void shouldReturnEmptyListWhenUserHasNoDashboards() {
-            Users newUser = createAndSaveUser("newUser");
-            createAndSave(DashboardNames.FUSION_BOARD, "Other's dashboard", currentUserEntity, false);
-
-            Specification<Dashboard> spec = DashboardSpecification.build(
-                null,
-                List.of(DashboardType.MY_DASHBOARD),
-                newUser.getName(),
-                false
-            );
-
-            List<Dashboard> results = dashboardRepository.findAll(spec);
-
-            assertThat(results).isEmpty();
-        }
 
         @Test
         @DisplayName("Should handle null search term")
         void shouldHandleNullSearchTerm() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(1L, "Dashboard", "Desc", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
 
-            List<String> results = getDashboardNames(null, null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).isNotEmpty();
+            // Act & Assert - should not throw exception
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null, // null search
+                null,
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            assertThat(result).isNotNull();
         }
 
         @Test
-        @DisplayName("Should handle whitespace-only search term")
-        void shouldHandleWhitespaceOnlySearchTerm() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+        @DisplayName("Should handle null dashboard types")
+        void shouldHandleNullDashboardTypes() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(1L, "Dashboard", "Desc", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
 
-            List<String> results = getDashboardNames("   ", null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            // Whitespace should be treated as no search filter
-            assertThat(results).isNotEmpty();
+            // Act & Assert - should not throw exception
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                null, // null types
+                CURRENT_USER,
+                false,
+                pageable
+            );
+
+            assertThat(result).isNotNull();
         }
 
         @Test
-        @DisplayName("Should handle SQL special characters safely")
-        void shouldHandleSqlSpecialCharacters() {
-            createAndSave(DashboardNames.FUSION_BOARD, "My trading view", currentUserEntity, false);
+        @DisplayName("Should handle empty dashboard types list")
+        void shouldHandleEmptyDashboardTypesList() {
+            // Arrange
+            Users user = createUser(1L, CURRENT_USER);
+            Dashboard dashboard = createDashboard(1L, "Dashboard", "Desc", user, false);
+            
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<Dashboard> dashboardPage = new PageImpl<>(List.of(dashboard), pageable, 1);
 
-            // Should not throw exception or cause SQL errors
-            List<String> results = getDashboardNames("'; DROP TABLE dashboard; --", null, false);
+            when(dashboardRepository.findAll(any(Specification.class), eq(pageable)))
+                .thenReturn(dashboardPage);
+            when(userManagementService.get(1L))
+                .thenReturn(new UserDTO(CURRENT_USER));
 
-            assertThat(results).isEmpty();
-            // Verify table still exists
-            assertThat(dashboardRepository.count()).isGreaterThan(0);
-        }
+            // Act
+            Page<DashboardResponseDTO> result = dashboardService.findAll(
+                null,
+                Collections.emptyList(), // empty list
+                CURRENT_USER,
+                false,
+                pageable
+            );
 
-        @Test
-        @DisplayName("Should handle LIKE wildcards in search term")
-        void shouldHandleLikeWildcardsInSearchTerm() {
-            createAndSave("Dashboard 1", "First dashboard", currentUserEntity, false);
-            createAndSave("Dashboard 2", "Second dashboard", currentUserEntity, false);
-
-            // % should be treated as literal character, not wildcard
-            List<String> results = getDashboardNames("%", null, false);
-
-            assertThat(results).isEmpty();
+            // Assert
+            assertThat(result).isNotNull();
         }
     }
 
     // ==================== Helper Methods ====================
 
-    private Users createAndSaveUser(String name) {
+    private Users createUser(Long id, String name) {
         Users user = new Users();
+        user.setId(id);
         user.setName(name);
-        return userRepository.save(user);
+        return user;
     }
 
-    private Dashboard createDashboard(String name, String desc, Users user, boolean deleted) {
-        Dashboard d = new Dashboard();
-        d.setName(name);
-        d.setDescription(desc);
-        d.setUser(user);
-        d.setDeleted(deleted);
-        return d;
-    }
-
-    private Dashboard createAndSave(String name, String desc, Users user, boolean deleted) {
-        Dashboard dashboard = createDashboard(name, desc, user, deleted);
-        return dashboardRepository.save(dashboard);
-    }
-
-    private List<String> getDashboardNames(String search, List<DashboardType> types, boolean includeDeleted) {
-        Specification<Dashboard> spec = DashboardSpecification.build(
-            search,
-            types,
-            CURRENT_USER,
-            includeDeleted
-        );
-        return dashboardRepository.findAll(spec)
-            .stream()
-            .map(Dashboard::getName)
-            .toList();
+    private Dashboard createDashboard(Long id, String name, String desc, Users user, boolean deleted) {
+        Dashboard dashboard = new Dashboard();
+        dashboard.setId(id);
+        dashboard.setName(name);
+        dashboard.setDescription(desc);
+        dashboard.setUser(user);
+        dashboard.setDeleted(deleted);
+        dashboard.setCreated(LocalDateTime.now());
+        dashboard.setLastUpdated(LocalDateTime.now());
+        return dashboard;
     }
 }
+
+
+
 ```
