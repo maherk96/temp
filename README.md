@@ -1,62 +1,30 @@
 ```java
-package com.citi.fx.qa.cor.mock.client.sim.util;
 
+import lombok.extern.slf4j.Slf4j;
 import quickfix.Message;
 import quickfix.SessionID;
 
-public class FixLogFormatter {
+@Slf4j
+public class AlgoFixMessageListener implements QFMessageListener {
 
-    public static String format(SessionID sessionId, Message message, boolean inbound) {
-        String fix = sanitize(message.toString());
+    private final AlgoFixMessageQueue algoFixMessageQueue;
 
-        // Extract comp IDs
-        String senderCompID = safeGet(message, quickfix.field.SenderCompID.FIELD);
-        String targetCompID = safeGet(message, quickfix.field.TargetCompID.FIELD);
-
-        String msgDesc = getMessageDescription(message);
-        String session = sessionId != null ? sessionId.toString() : "unknown-session";
-
-        // Determine direction
-        String arrow = inbound ? "<----" : "---->";
-        String dirTag = inbound ? "IN  >>>" : "OUT <<<";
-
-        // Derive "client name" dynamically — from the TargetCompID if inbound, SenderCompID if outbound
-        String clientName = inbound ? targetCompID : senderCompID;
-
-        return String.format(
-            "[%s][session=%s]%n%s %s [%s %s %s]%nFIX (short): %s",
-            clientName,
-            session,
-            dirTag,
-            msgDesc,
-            targetCompID,
-            arrow,
-            senderCompID,
-            fix
-        );
+    public AlgoFixMessageListener(AlgoFixMessageQueue algoFixMessageQueue) {
+        this.algoFixMessageQueue = algoFixMessageQueue;
     }
 
-    private static String sanitize(String rawFix) {
-        return rawFix.replace('\u0001', '|');
-    }
-
-    private static String safeGet(Message message, int tag) {
+    @Override
+    public void onMessage(SessionID sessionId, Message message) {
         try {
-            return message.getHeader().getString(tag);
-        } catch (Exception e) {
-            return "unknown";
-        }
-    }
+            // Here it's inbound (server → client)
+            String formatted = FixLogFormatter.format(sessionId, message, true);
+            log.info(formatted);
 
-    private static String getMessageDescription(Message message) {
-        try {
-            String msgType = message.getHeader().getString(quickfix.field.MsgType.FIELD);
-            return com.citi.fx.qa.cor.mock.client.sim.listeners.FixMessageUtil.getMessageDescription(msgType);
+            algoFixMessageQueue.addMessage(message.toString());
         } catch (Exception e) {
-            return "Unknown MsgType";
+            log.warn("Failed to extract FIX message details: {}", e.getMessage());
         }
     }
 }
-
 
 ```
