@@ -1,35 +1,32 @@
-```java
-
-/**
- * Returns the human-readable description for a given FIX ExecType code.
- * 
- * @param execTypeChar The single-character ExecType (e.g., "0", "A", "F").
- * @return A descriptive string for the execution type.
- */
-public static String getExecTypeDescription(String execTypeChar) {
-    if (execTypeChar == null || execTypeChar.isEmpty()) {
-        return "Unknown ExecType";
+```json
+[
+  {
+    "type": "MOST_TEST_CASES_FAILED",
+    "displayName": "Most Test Cases Failed",
+    "graphType": "BAR",
+    "widgetConfig": {
+      "type": "MOST_TEST_CASES_FAILED",
+      "fields": {
+        "appName": {
+          "dataType": "string",
+          "description": "The name of the application to filter test results for"
+        },
+        "days": {
+          "dataType": "integer",
+          "description": "The number of days of test history to include"
+        },
+        "includeRegression": {
+          "dataType": "boolean",
+          "description": "Whether to include regression test results"
+        }
+      },
+      "example": {
+        "appName": "Fusion Algo",
+        "days": 14,
+        "includeRegression": true
+      }
     }
-    
-    return switch (execTypeChar) {
-        case "0" -> "New";
-        case "1" -> "Partial Fill";
-        case "2" -> "Fill";
-        case "3" -> "Done For Day";
-        case "4" -> "Canceled";
-        case "5" -> "Replace";
-        case "6" -> "Pending Cancel";
-        case "7" -> "Stopped";
-        case "8" -> "Rejected";
-        case "9" -> "Suspended";
-        case "A" -> "Pending New";
-        case "B" -> "Calculated";
-        case "C" -> "Expired";
-        case "D" -> "Restated";
-        case "E" -> "Pending Replace";
-        case "F" -> "Trade";
-        case "I" -> "Order Status";
-        default -> "Unknown ExecType (" + execTypeChar + ")";
-    };
-}
+  }
+]
+
 ```
