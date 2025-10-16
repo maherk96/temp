@@ -1,55 +1,58 @@
 ```java
-package com.example.fixutils;
 
-import java.security.SecureRandom;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-
-public class FixOrderIdGenerator {
-
-    private static final String ALPHA_NUMERIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    private static final SecureRandom RANDOM = new SecureRandom();
-
-    /**
-     * Generates a random ClOrdID in the format:
-     * O<random><timestamp><random>
-     * Example: O7SCDDT00069H1P
-     */
-    public static String generateClOrdID() {
-        String prefix = "O";
-        String random1 = randomString(5);
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
-        String random2 = randomString(3);
-        return prefix + random1 + timestamp + random2;
-    }
-
-    /**
-     * Generates a random ClOrdLinkID in the format:
-     * CSU<random><timestamp>
-     * Example: CSU1V35MA00069
-     */
-    public static String generateClOrdLinkID() {
-        String prefix = "CSU";
-        String random = randomString(5);
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("mmssSS"));
-        return prefix + random + timestamp;
-    }
-
-    /** Utility to create a random alphanumeric string of given length */
-    private static String randomString(int length) {
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            sb.append(ALPHA_NUMERIC.charAt(RANDOM.nextInt(ALPHA_NUMERIC.length())));
-        }
-        return sb.toString();
-    }
-
-    // Example usage
-    public static void main(String[] args) {
-        System.out.println("ClOrdID     " + generateClOrdID());
-        System.out.println("ClOrdLinkID " + generateClOrdLinkID());
-    }
+public static Stream<LiquidityPoolTestData> liquidityPoolTestDataStream() {
+    return Stream.of(
+        new LiquidityPoolTestData(EBS, TargetStrategy.FUS_TWAP, "USDJPY", "USD", BUY),
+        new LiquidityPoolTestData(TRM, TargetStrategy.FUS_VOL_TRACKER, "EURUSD", "EUR", SELL),
+        new LiquidityPoolTestData(CNX, TargetStrategy.FUS_SWEEP, "AUDUSD", "USD", BUY),
+        new LiquidityPoolTestData(CME, TargetStrategy.FUS_POST_SWEEP, "GBPUSD", "GBP", SELL),
+        new LiquidityPoolTestData(PARFX, TargetStrategy.FUS_PEG, "USDCNH", "USD", BUY),
+        new LiquidityPoolTestData(LMAF, TargetStrategy.FUS_VWAP, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(HENNING, TargetStrategy.FUS_ARRIVAL, "USDTWD", "TWD", BUY),
+        new LiquidityPoolTestData(VIRTU, TargetStrategy.FUS_TWAP, "USDPEN", "PEN", SELL),
+        new LiquidityPoolTestData(FXALL, TargetStrategy.FUS_VOL_TRACKER, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(FM, TargetStrategy.FUS_SWEEP, "GBPUSD", "GBP", SELL),
+        new LiquidityPoolTestData(GTX, TargetStrategy.FUS_POST_SWEEP, "AUDUSD", "USD", BUY),
+        new LiquidityPoolTestData(EBF, TargetStrategy.FUS_PEG, "USDJPY", "JPY", SELL),
+        new LiquidityPoolTestData(FSS, TargetStrategy.FUS_VWAP, "USDCNH", "CNY", BUY),
+        new LiquidityPoolTestData(CRX, TargetStrategy.FUS_ARRIVAL, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(X24NDF, TargetStrategy.FUS_TWAP, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(BGC, TargetStrategy.FUS_VOL_TRACKER, "USDTWD", "TWD", SELL),
+        new LiquidityPoolTestData(EBS, TargetStrategy.FUS_SWEEP, "AUDUSD", "AUD", BUY),
+        new LiquidityPoolTestData(TRM, TargetStrategy.FUS_POST_SWEEP, "GBPUSD", "GBP", SELL),
+        new LiquidityPoolTestData(CNX, TargetStrategy.FUS_PEG, "USDPEN", "PEN", BUY),
+        new LiquidityPoolTestData(CME, TargetStrategy.FUS_VWAP, "USDJPY", "JPY", SELL),
+        new LiquidityPoolTestData(PARFX, TargetStrategy.FUS_ARRIVAL, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(LMAF, TargetStrategy.FUS_TWAP, "AUDUSD", "USD", SELL),
+        new LiquidityPoolTestData(HENNING, TargetStrategy.FUS_VOL_TRACKER, "USDCNH", "CNY", BUY),
+        new LiquidityPoolTestData(VIRTU, TargetStrategy.FUS_SWEEP, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(FXALL, TargetStrategy.FUS_POST_SWEEP, "USDTWD", "TWD", BUY),
+        new LiquidityPoolTestData(FM, TargetStrategy.FUS_PEG, "USDPEN", "PEN", SELL),
+        new LiquidityPoolTestData(GTX, TargetStrategy.FUS_VWAP, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(EBF, TargetStrategy.FUS_ARRIVAL, "GBPUSD", "GBP", SELL),
+        new LiquidityPoolTestData(FSS, TargetStrategy.FUS_TWAP, "USDJPY", "JPY", BUY),
+        new LiquidityPoolTestData(CRX, TargetStrategy.FUS_VOL_TRACKER, "USDCNH", "CNY", SELL),
+        new LiquidityPoolTestData(X24NDF, TargetStrategy.FUS_SWEEP, "AUDUSD", "AUD", BUY),
+        new LiquidityPoolTestData(BGC, TargetStrategy.FUS_POST_SWEEP, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(EBS, TargetStrategy.FUS_PEG, "USDTWD", "TWD", BUY),
+        new LiquidityPoolTestData(TRM, TargetStrategy.FUS_VWAP, "USDPEN", "PEN", SELL),
+        new LiquidityPoolTestData(CNX, TargetStrategy.FUS_ARRIVAL, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(CME, TargetStrategy.FUS_TWAP, "USDJPY", "JPY", SELL),
+        new LiquidityPoolTestData(PARFX, TargetStrategy.FUS_VOL_TRACKER, "GBPUSD", "GBP", BUY),
+        new LiquidityPoolTestData(LMAF, TargetStrategy.FUS_SWEEP, "AUDUSD", "AUD", SELL),
+        new LiquidityPoolTestData(HENNING, TargetStrategy.FUS_POST_SWEEP, "USDCNH", "CNY", BUY),
+        new LiquidityPoolTestData(VIRTU, TargetStrategy.FUS_PEG, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(FXALL, TargetStrategy.FUS_VWAP, "USDTWD", "TWD", BUY),
+        new LiquidityPoolTestData(FM, TargetStrategy.FUS_ARRIVAL, "USDPEN", "PEN", SELL),
+        new LiquidityPoolTestData(GTX, TargetStrategy.FUS_TWAP, "EURUSD", "EUR", BUY),
+        new LiquidityPoolTestData(EBF, TargetStrategy.FUS_VOL_TRACKER, "AUDUSD", "AUD", SELL),
+        new LiquidityPoolTestData(FSS, TargetStrategy.FUS_SWEEP, "GBPUSD", "GBP", BUY),
+        new LiquidityPoolTestData(CRX, TargetStrategy.FUS_POST_SWEEP, "USDJPY", "JPY", SELL),
+        new LiquidityPoolTestData(X24NDF, TargetStrategy.FUS_PEG, "USDCNH", "CNY", BUY),
+        new LiquidityPoolTestData(BGC, TargetStrategy.FUS_VWAP, "USDKRW", "KRW", SELL),
+        new LiquidityPoolTestData(EBS, TargetStrategy.FUS_ARRIVAL, "USDTWD", "TWD", BUY),
+        new LiquidityPoolTestData(TRM, TargetStrategy.FUS_TWAP, "USDPEN", "PEN", SELL)
+    );
 }
-
 
 ```
