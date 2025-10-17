@@ -1,80 +1,45 @@
 ```java
+public static String format(SessionID sessionId, Message message, boolean inbound) {
+    var fix = sanitize(message.toString());
 
-public void waitForExecutionReport(
-        String orderId,
-        List<COREexecType> execTypes,
-        Duration timeout,
-        String errorMessage) {
+    var senderCompID = safeGet(message, quickfix.field.SenderCompID.FIELD);
+    var targetCompID = safeGet(message, quickfix.field.TargetCompID.FIELD);
 
-    // --- 1️⃣ Build predicates for each expected execType ---
-    List<DescriptivePredicate<CorMockExecutionReport>> criteria = execTypes.stream()
-            .map(execType -> new DescriptivePredicateBuilder<CorMockExecutionReport>()
-                    .equals(CorMockExecutionReport::getClOrdLinkID, orderId, "clOrdID")
-                    .equals(CorMockExecutionReport::getExecType, execType, "execType")
-                    .buildAsPredicate())
-            .collect(Collectors.toList());
+    var msgDesc = getMessageDescription(message);
+    var session = sessionId != null ? sessionId.toString() : "unknown-session";
 
-    var conditions = criteria.stream()
-            .map(DescriptivePredicate::toString)
-            .collect(Collectors.joining(", "));
+    var arrow = inbound ? "<----" : "---->";
+    var dirTag = inbound ? "IN >>>" : "OUT <<<";
 
-    log.info("Waiting for Execution Reports for clOrdLinkID={} and execTypes={} | Conditions: {}",
-            orderId, execTypes, conditions);
+    var clOrdID = safeGet(message, quickfix.field.ClOrdID.FIELD);
+    var clOrdLinkID = safeGet(message, quickfix.field.ClOrdLinkID.FIELD);
+    var execType = safeGet(message, quickfix.field.ExecType.FIELD);
 
-    // --- 2️⃣ Await all expected reports ---
-    AwaitCriteria.waitForAllCriteriaToMatchAcrossCollection(
-            this::getCorExecutionReports,
-            criteria,
-            timeout,
-            errorMessage);
+    var clientName = inbound ? targetCompID : senderCompID;
 
-    // --- 3️⃣ Fetch all reports after waiting ---
-    var reports = getCorExecutionReports();
-
-    // --- 4️⃣ Group results: which reports matched which predicates ---
-    Map<DescriptivePredicate<CorMockExecutionReport>, List<CorMockExecutionReport>> matchesByPredicate =
-            criteria.stream().collect(Collectors.toMap(
-                    p -> p,
-                    p -> reports.stream().filter(p).collect(Collectors.toList())
-            ));
-
-    // --- 5️⃣ Log per-predicate results ---
-    matchesByPredicate.forEach((predicate, matched) -> {
-        if (matched.isEmpty()) {
-            log.warn("❌ No reports matched predicate [{}]", predicate);
-        } else {
-            log.info("✅ {} report(s) matched predicate [{}]", matched.size(), predicate);
-            matched.forEach(r -> log.info(
-                    "   ↳ clOrdId={}, execType={}, symbol={}, qty={}",
-                    r.getClOrdLinkID(),
-                    r.getExecType(),
-                    r.getSymbol(),
-                    r.getOrderQty()
-            ));
-        }
-    });
-
-    // --- 6️⃣ Summary across all predicates ---
-    boolean allMatched = matchesByPredicate.values().stream().allMatch(list -> !list.isEmpty());
-
-    if (allMatched) {
-        log.info("✅ All {} expected execTypes found for orderId={}", execTypes.size(), orderId);
-    } else {
-        log.warn("❌ Missing one or more expected execTypes for orderId={}. Expected={}, Found={}",
-                orderId,
-                execTypes,
-                matchesByPredicate.entrySet().stream()
-                        .filter(e -> !e.getValue().isEmpty())
-                        .map(e -> e.getKey().toString())
-                        .collect(Collectors.toList()));
+    var msgInfo = new StringBuilder();
+    if (clOrdID != null && !clOrdID.isEmpty() && !"unknown".equals(clOrdID)) {
+        msgInfo.append("ClOrdID:").append(clOrdID);
+    }
+    if (clOrdLinkID != null && !clOrdLinkID.isEmpty() && !"unknown".equals(clOrdLinkID)) {
+        if (msgInfo.length() > 0) msgInfo.append("|");
+        msgInfo.append("ClOrdLinkID:").append(clOrdLinkID);
+    }
+    if (execType != null && !execType.isEmpty() && !"unknown".equals(execType)) {
+        if (msgInfo.length() > 0) msgInfo.append("|");
+        msgInfo.append("ExecType:").append(getExecTypeDescription(execType));
     }
 
-    // --- 7️⃣ (Optional) Flatten matched reports for further use ---
-    List<CorMockExecutionReport> matchedReports = matchesByPredicate.values().stream()
-            .flatMap(Collection::stream)
-            .distinct()
-            .collect(Collectors.toList());
+    var msgStr = msgInfo.length() > 0 ? "[" + msgInfo.toString().trim() + "]" : "";
 
-    log.info("Matched Execution Reports ({} total): {}", matchedReports.size(), matchedReports);
+    String directionStr = inbound
+        ? String.format("[%s %s %s]", senderCompID, arrow, targetCompID)   // COR ----> QA1 (inbound)
+        : String.format("[%s %s %s]", senderCompID, arrow, targetCompID);  // QA1 ----> COR (outbound)
+
+    return String.format(
+        "[%s][session=%s]%n%s %s %s %s%nFIX: %s",
+        clientName, session, dirTag, msgDesc, msgStr, directionStr, fix
+    );
 }
+
 ```
