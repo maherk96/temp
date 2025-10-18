@@ -1,45 +1,123 @@
 ```java
-public static String format(SessionID sessionId, Message message, boolean inbound) {
-    var fix = sanitize(message.toString());
-
-    var senderCompID = safeGet(message, quickfix.field.SenderCompID.FIELD);
-    var targetCompID = safeGet(message, quickfix.field.TargetCompID.FIELD);
-
-    var msgDesc = getMessageDescription(message);
-    var session = sessionId != null ? sessionId.toString() : "unknown-session";
-
-    var arrow = inbound ? "<----" : "---->";
-    var dirTag = inbound ? "IN >>>" : "OUT <<<";
-
-    var clOrdID = safeGet(message, quickfix.field.ClOrdID.FIELD);
-    var clOrdLinkID = safeGet(message, quickfix.field.ClOrdLinkID.FIELD);
-    var execType = safeGet(message, quickfix.field.ExecType.FIELD);
-
-    var clientName = inbound ? targetCompID : senderCompID;
-
-    var msgInfo = new StringBuilder();
-    if (clOrdID != null && !clOrdID.isEmpty() && !"unknown".equals(clOrdID)) {
-        msgInfo.append("ClOrdID:").append(clOrdID);
+/**
+ * Reads FIX messages from a classpath resource file
+ * 
+ * @param resourcePath path to the resource file (relative to classpath root)
+ *                     e.g., "fix_messages.txt" for src/test/resources/fix_messages.txt
+ * @return list of parsed FIX messages
+ * @throws RuntimeException if resource cannot be read or parsed
+ */
+public static List<Message> readFixMessageFromFile(String resourcePath) {
+    List<Message> messages = new ArrayList<>();
+    
+    try (InputStream is = FixUtil.class.getClassLoader().getResourceAsStream(resourcePath)) {
+        if (is == null) {
+            throw new IOException("Resource not found on classpath: " + resourcePath);
+        }
+        
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+            String line;
+            int lineNumber = 0;
+            
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                line = line.trim();
+                
+                if (line.isEmpty()) {
+                    continue;
+                }
+                
+                try {
+                    log.info("Parsing FIX message: {}", line);
+                    Message fixMessage = new Message(line, false);
+                    messages.add(fixMessage);
+                } catch (Exception e) {
+                    String errorMsg = String.format(
+                        "Error parsing FIX message at line %d: %s", 
+                        lineNumber, 
+                        line
+                    );
+                    log.error(errorMsg, e);
+                    throw new RuntimeException(errorMsg, e);
+                }
+            }
+        }
+        
+    } catch (IOException e) {
+        String errorMsg = "Error reading FIX messages from resource: " + resourcePath;
+        log.error(errorMsg, e);
+        throw new RuntimeException(errorMsg, e);
     }
-    if (clOrdLinkID != null && !clOrdLinkID.isEmpty() && !"unknown".equals(clOrdLinkID)) {
-        if (msgInfo.length() > 0) msgInfo.append("|");
-        msgInfo.append("ClOrdLinkID:").append(clOrdLinkID);
-    }
-    if (execType != null && !execType.isEmpty() && !"unknown".equals(execType)) {
-        if (msgInfo.length() > 0) msgInfo.append("|");
-        msgInfo.append("ExecType:").append(getExecTypeDescription(execType));
-    }
-
-    var msgStr = msgInfo.length() > 0 ? "[" + msgInfo.toString().trim() + "]" : "";
-
-    String directionStr = inbound
-        ? String.format("[%s %s %s]", senderCompID, arrow, targetCompID)   // COR ----> QA1 (inbound)
-        : String.format("[%s %s %s]", senderCompID, arrow, targetCompID);  // QA1 ----> COR (outbound)
-
-    return String.format(
-        "[%s][session=%s]%n%s %s %s %s%nFIX: %s",
-        clientName, session, dirTag, msgDesc, msgStr, directionStr, fix
-    );
+    
+    return messages;
 }
 
+// Example of how to call this method:
+public static void main(String[] args) {
+    try {
+        // CORRECT: Use classpath-relative path (no src/test/resources/ prefix)
+        List<Message> messages = readFixMessageFromFile("fix_messages.txt");
+        
+        messages.forEach(message -> {
+            System.out.println(message.toString());
+        });
+        
+    } catch (RuntimeException e) {
+        System.err.println("Failed to read messages: " + e.getMessage());
+    }
+}
+
+/**
+ * Alternative: Read from absolute file path (not classpath)
+ * Use this if you need to read from file system directly
+ */
+public static List<Message> readFixMessageFromFilePath(Path filePath) {
+    List<Message> messages = new ArrayList<>();
+    
+    try (BufferedReader reader = Files.newBufferedReader(filePath)) {
+        String line;
+        int lineNumber = 0;
+        
+        while ((line = reader.readLine()) != null) {
+            lineNumber++;
+            line = line.trim();
+            
+            if (line.isEmpty()) {
+                continue;
+            }
+            
+            try {
+                log.info("Parsing FIX message: {}", line);
+                Message fixMessage = new Message(line, false);
+                messages.add(fixMessage);
+            } catch (Exception e) {
+                String errorMsg = String.format(
+                    "Error parsing FIX message at line %d: %s", 
+                    lineNumber, 
+                    line
+                );
+                log.error(errorMsg, e);
+                throw new RuntimeException(errorMsg, e);
+            }
+        }
+        
+    } catch (IOException e) {
+        String errorMsg = "Error reading FIX messages from file: " + filePath;
+        log.error(errorMsg, e);
+        throw new RuntimeException(errorMsg, e);
+    }
+    
+    return messages;
+}
+
+// Example using file path:
+public static void example2() {
+    try {
+        Path filePath = Paths.get("src/test/resources/fix_messages.txt");
+        List<Message> messages = readFixMessageFromFilePath(filePath);
+        messages.forEach(System.out::println);
+    } catch (RuntimeException e) {
+        System.err.println("Failed to read messages: " + e.getMessage());
+    }
+}
 ```
