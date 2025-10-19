@@ -1,25 +1,12 @@
 ```java
-protected List<DefaultExecutionReport> waitForAllExecutionReports(QueueCursor cursor) {
-    List<DefaultExecutionReport> reports = new ArrayList<>();
+try (var cursor = env.getServiceFactory()
+        .getQueueCursor()
+        .decode(ExecutionReportListener.class)
+        .forQueue("order-processor")) {
 
-    // Keep trying to decode entries until timeout or queue is empty
-    while (true) {
-        try {
-            // This will block until nextDecodable() returns true or timeout expires
-            waitForCondition(cursor::nextDecodable);
+    var reports = waitForAllExecutionReports(cursor);
 
-            // If we reached here, there’s a decodable entry ready
-            if (cursor.entry().methodId() == MethodIDs.EXECUTION_REPORT_LISTENER_ON_EXECUTION_REPORT) {
-                var report = (DefaultExecutionReport) cursor.entry().getArgument(1);
-                reports.add(report);
-            }
-
-        } catch (RuntimeException timeout) {
-            // "timeout exceeded" means no new entries arrived — stop collecting
-            break;
-        }
-    }
-
-    return reports;
+    System.out.println("Received " + reports.size() + " execution reports:");
+    reports.forEach(r -> System.out.println(" -> " + r.getClOrdID()));
 }
 ```
