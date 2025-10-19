@@ -1,19 +1,17 @@
 ```java
-public Optional<DefaultNewOrderSingle> getOrder(String sessionId, String orderRef) {
-    var key = new OrderKey(sessionId, orderRef);
-    log.info("Looking up order with key: {}", key);
+public void addOrder(String sessionId, String orderRef, DefaultNewOrderSingle defaultNewOrderSingle) {
+    log.info("Adding order - orderRef param: {}, order.clOrdID(): {}", 
+        orderRef, defaultNewOrderSingle.clOrdID());
     
-    var manifest = orderManifestCache.get(key);
-    if (manifest != null) {
-        var order = manifest.getDefaultNewOrderSingle();
-        log.info("Found order - lookup key: {}, order clOrdID: {}", orderRef, order.clOrdID());
-        log.info("Cache contents: {}", orderManifestCache.keySet());
-    } else {
-        log.warn("No order found for key: {}", key);
-        log.info("Cache contents: {}", orderManifestCache.keySet());
-    }
+    var orderKey = new OrderKey(sessionId, orderRef);
+    orderManifestCache.computeIfAbsent(
+        orderKey, k -> new OrderManifest(defaultNewOrderSingle, null));
     
-    return Optional.ofNullable(manifest)
-        .map(OrderManifest::getDefaultNewOrderSingle);
+    // IMMEDIATELY after adding, check what's stored
+    var stored = orderManifestCache.get(orderKey).getDefaultNewOrderSingle();
+    log.info("Stored order - key orderRef: {}, stored order.clOrdID(): {}", 
+        orderRef, stored.clOrdID());
+        
+    orderRefToSessionIdCache.put(orderRef, sessionId);
 }
 ```
