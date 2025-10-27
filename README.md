@@ -24,14 +24,13 @@ base_filtered AS (
     JOIN TEST_CLASS tc ON tc.APP_ID = a.ID
     JOIN TEST t ON t.TEST_CLASS_ID = tc.ID
     LEFT JOIN TEST_RUN tr ON tr.TEST_ID = t.ID
-    LEFT JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID
+    LEFT JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID AND tl.REGRESSION = 1  -- ✅ Filter in JOIN
     LEFT JOIN TEST_TAG tt ON tt.TEST_ID = t.ID AND tt.TEST_LAUNCH_ID = tl.ID
     WHERE a.NAME = (SELECT app_name FROM input_params)
-      AND (tl.REGRESSION = 1 OR tl.REGRESSION IS NULL)
       AND (tr.START_TIME BETWEEN 
               (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
               AND (SELECT end_date FROM input_params)
-           OR tr.START_TIME IS NULL)
+           OR tr.START_TIME IS NULL)  -- Include never-run tests
 ),
 latest_runs_status AS (
     SELECT
