@@ -1,5 +1,4 @@
 ```sql
-
 WITH input_params AS (
     SELECT
         'Fusion Algo' AS app_name,
@@ -14,7 +13,6 @@ base_filtered AS (
         tc.NAME AS test_class_name,
         tr.STATUS,
         tr.START_TIME,
-        tl.REGRESSION,
         NVL(tt.TAG, 'No Tag') AS tag,
         ROW_NUMBER() OVER (
             PARTITION BY tc.ID, NVL(tt.TAG, 'No Tag')
@@ -23,14 +21,14 @@ base_filtered AS (
     FROM APPLICATION a
     JOIN TEST_CLASS tc ON tc.APP_ID = a.ID
     JOIN TEST t ON t.TEST_CLASS_ID = tc.ID
-    LEFT JOIN TEST_RUN tr ON tr.TEST_ID = t.ID
-    LEFT JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID AND tl.REGRESSION = 1  -- ✅ Filter in JOIN
+    JOIN TEST_RUN tr ON tr.TEST_ID = t.ID
+    JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID
     LEFT JOIN TEST_TAG tt ON tt.TEST_ID = t.ID AND tt.TEST_LAUNCH_ID = tl.ID
     WHERE a.NAME = (SELECT app_name FROM input_params)
-      AND (tr.START_TIME BETWEEN 
+      AND tl.REGRESSION = 1
+      AND tr.START_TIME BETWEEN 
               (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
               AND (SELECT end_date FROM input_params)
-           OR tr.START_TIME IS NULL)  -- Include never-run tests
 ),
 latest_runs_status AS (
     SELECT
@@ -96,7 +94,7 @@ SELECT
         THEN 1 ELSE 0 END
     ) AS has_passed_this_week,
     
-    -- Activity status
+    -- Activity status (Active or Stale only, no "Never Run")
     CASE
         WHEN MAX(CASE 
                 WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) 
@@ -104,13 +102,7 @@ SELECT
                 THEN 1 
              END) = 1 
         THEN 'Active'
-        WHEN MAX(CASE 
-                WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
-                                       AND (SELECT start_date FROM input_params) 
-                THEN 1 
-             END) = 1 
-        THEN 'Stale'
-        ELSE 'Never Run'
+        ELSE 'Stale'
     END AS test_run_status
     
 FROM base_filtered bf
