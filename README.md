@@ -1,121 +1,112 @@
 ```sql
-WITH input_params AS (
-    SELECT
-        'Fusion Algo' AS app_name,
-        TO_TIMESTAMP('2025-10-21 00:00:00', 'YYYY-MM-DD HH24:MI:SS') AS start_date,
-        TO_TIMESTAMP('2025-10-27 23:59:59', 'YYYY-MM-DD HH24:MI:SS') AS end_date
+
+CREATE TABLE TEST_CLASS_SUMMARY (
+    test_class_id NUMBER(19) NOT NULL,
+    test_class_name VARCHAR2(100),
+    tag VARCHAR2(50) NOT NULL,
+    week_start_date DATE NOT NULL,
+    week_end_date DATE NOT NULL,
+    passed_count NUMBER(10) DEFAULT 0,
+    total_count NUMBER(10) DEFAULT 0,
+    latest_run_time TIMESTAMP(6) WITH TIME ZONE,
+    latest_status VARCHAR2(20),
+    pass_rate_percent NUMBER(5,2),
+    has_passed_week NUMBER(1) DEFAULT 0,
+    test_run_status VARCHAR2(20),
+    last_updated TIMESTAMP(6) WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (test_class_id, tag, week_start_date)
+) TABLESPACE QAPORTAL_DATA;
+
+-- Indexes for performance
+CREATE INDEX idx_summary_week ON TEST_CLASS_SUMMARY(week_start_date);
+CREATE INDEX idx_summary_class ON TEST_CLASS_SUMMARY(test_class_id);
+CREATE INDEX idx_summary_status ON TEST_CLASS_SUMMARY(test_run_status);
+CREATE INDEX idx_summary_updated ON TEST_CLASS_SUMMARY(last_updated);
+
+
+-- Populate summary for the last 52 weeks (1 year of history)
+INSERT INTO TEST_CLASS_SUMMARY (
+    test_class_id,
+    test_class_name,
+    tag,
+    week_start_date,
+    week_end_date,
+    passed_count,
+    total_count,
+    latest_run_time,
+    latest_status,
+    pass_rate_percent,
+    has_passed_week,
+    test_run_status
+)
+WITH weekly_ranges AS (
+    -- Generate all weeks for the last year
+    SELECT 
+        TRUNC(SYSDATE, 'IW') - (LEVEL - 1) * 7 AS week_start,
+        TRUNC(SYSDATE, 'IW') - (LEVEL - 1) * 7 + 6 + (23/24) + (59/1440) + (59/86400) AS week_end
     FROM DUAL
+    CONNECT BY LEVEL <= 52
 ),
-base_filtered AS (
+test_runs_by_week AS (
     SELECT
-        a.NAME AS app_name,
         tc.ID AS test_class_id,
         tc.NAME AS test_class_name,
+        NVL(tt.TAG, 'No Tag') AS tag,
+        wr.week_start,
+        wr.week_end,
         tr.STATUS,
         tr.START_TIME,
-        NVL(tt.TAG, 'No Tag') AS tag,
         ROW_NUMBER() OVER (
-            PARTITION BY tc.ID, NVL(tt.TAG, 'No Tag')
+            PARTITION BY tc.ID, NVL(tt.TAG, 'No Tag'), wr.week_start
             ORDER BY tr.START_TIME DESC
-        ) AS rn_latest_run
-    FROM APPLICATION a
-    JOIN TEST_CLASS tc ON tc.APP_ID = a.ID
-    JOIN TEST t ON t.TEST_CLASS_ID = tc.ID
-    JOIN TEST_RUN tr ON tr.TEST_ID = t.ID
-    JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID
+        ) AS rn_latest
+    FROM weekly_ranges wr
+    CROSS JOIN APPLICATION a
+    CROSS JOIN TEST_CLASS tc
+    CROSS JOIN TEST t
+    LEFT JOIN TEST_RUN tr ON tr.TEST_ID = t.ID 
+        AND tr.START_TIME BETWEEN wr.week_start AND wr.week_end
+    LEFT JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID
     LEFT JOIN TEST_TAG tt ON tt.TEST_ID = t.ID AND tt.TEST_LAUNCH_ID = tl.ID
-    WHERE a.NAME = (SELECT app_name FROM input_params)
-      AND tl.REGRESSION = 1
-      AND tr.START_TIME BETWEEN 
-              (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
-              AND (SELECT end_date FROM input_params)
+    WHERE tc.APP_ID = a.ID
+      AND t.TEST_CLASS_ID = tc.ID
+      AND (tl.REGRESSION = 1 OR tl.REGRESSION IS NULL)
 ),
-latest_runs_status AS (
+aggregated AS (
     SELECT
         test_class_id,
+        test_class_name,
         tag,
-        STATUS AS latest_status,
-        START_TIME AS latest_start_time
-    FROM base_filtered
-    WHERE rn_latest_run = 1
+        week_start,
+        week_end,
+        COUNT(CASE WHEN STATUS = 'PASSED' THEN 1 END) AS passed_count,
+        COUNT(STATUS) AS total_count,
+        MAX(CASE WHEN rn_latest = 1 THEN START_TIME END) AS latest_run_time,
+        MAX(CASE WHEN rn_latest = 1 THEN STATUS END) AS latest_status
+    FROM test_runs_by_week
+    WHERE START_TIME IS NOT NULL  -- Only include weeks with actual runs
+    GROUP BY test_class_id, test_class_name, tag, week_start, week_end
 )
 SELECT
-    bf.app_name,
-    bf.test_class_id,
-    bf.test_class_name,
-    bf.tag,
-    lrs.latest_start_time AS last_run_time,
-    lrs.latest_status AS last_run_status,
-    
-    -- Count of passed tests in current week
-    COUNT(CASE 
-        WHEN bf.status = 'PASSED' 
-         AND bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                               AND (SELECT end_date FROM input_params)
-        THEN 1 
-    END) AS passed_this_week,
-    
-    -- Total test runs in current week
-    COUNT(CASE 
-        WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                               AND (SELECT end_date FROM input_params)
-        THEN 1 
-    END) AS total_runs_this_week,
-    
-    -- Pass rate percentage
+    test_class_id,
+    test_class_name,
+    tag,
+    week_start AS week_start_date,
+    week_end AS week_end_date,
+    passed_count,
+    total_count,
+    latest_run_time,
+    latest_status,
     CASE 
-        WHEN COUNT(CASE 
-                WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                                       AND (SELECT end_date FROM input_params)
-                THEN 1 
-             END) > 0
-        THEN ROUND(
-            COUNT(CASE 
-                WHEN bf.status = 'PASSED' 
-                 AND bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                                       AND (SELECT end_date FROM input_params)
-                THEN 1 
-            END) * 100.0 / 
-            COUNT(CASE 
-                WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                                       AND (SELECT end_date FROM input_params)
-                THEN 1 
-            END), 
-            2
-        )
-        ELSE 0
+        WHEN total_count > 0 
+        THEN ROUND((passed_count * 100.0) / total_count, 2)
+        ELSE 0 
     END AS pass_rate_percent,
-    
-    -- Has at least one pass this week flag
-    MAX(
-        CASE WHEN bf.status = 'PASSED'
-             AND bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                                   AND (SELECT end_date FROM input_params)
-        THEN 1 ELSE 0 END
-    ) AS has_passed_this_week,
-    
-    -- Activity status (Active or Stale only, no "Never Run")
-    CASE
-        WHEN MAX(CASE 
-                WHEN bf.start_time BETWEEN (SELECT start_date FROM input_params) 
-                                       AND (SELECT end_date FROM input_params) 
-                THEN 1 
-             END) = 1 
-        THEN 'Active'
-        ELSE 'Stale'
-    END AS test_run_status
-    
-FROM base_filtered bf
-LEFT JOIN latest_runs_status lrs
-    ON bf.test_class_id = lrs.test_class_id
-   AND bf.tag = lrs.tag
-GROUP BY 
-    bf.app_name, 
-    bf.test_class_id, 
-    bf.test_class_name, 
-    bf.tag, 
-    lrs.latest_start_time, 
-    lrs.latest_status
-ORDER BY bf.test_class_name, bf.tag;
+    CASE WHEN passed_count > 0 THEN 1 ELSE 0 END AS has_passed_week,
+    'Active' AS test_run_status  -- All historical records are active for their week
+FROM aggregated
+WHERE total_count > 0;  -- Only insert weeks with actual test runs
+
+COMMIT;
 
 ```
