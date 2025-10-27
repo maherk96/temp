@@ -1,5 +1,4 @@
-```java
-
+```SQL
 WITH input_params AS (
     SELECT
         'TradingSystem' AS app_name,
@@ -32,8 +31,8 @@ base AS (
 recent_runs AS (
     SELECT *
     FROM base
-    WHERE tr.START_TIME BETWEEN (SELECT start_date FROM input_params) - INTERVAL '21' DAY
-                             AND (SELECT end_date FROM input_params)
+    WHERE START_TIME BETWEEN (SELECT start_date FROM input_params) - INTERVAL '21' DAY
+                         AND (SELECT end_date FROM input_params)
 )
 SELECT
     r.app_name,
@@ -79,5 +78,4 @@ SELECT
 FROM recent_runs r
 GROUP BY r.app_name, r.test_id, r.display_name, r.method_name, r.tag
 ORDER BY r.display_name, r.tag;
-
 ```
