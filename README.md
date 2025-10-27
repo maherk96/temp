@@ -6,18 +6,27 @@ WITH input_params AS (
         TO_TIMESTAMP('2025-10-27 23:59:59', 'YYYY-MM-DD HH24:MI:SS') AS end_date
     FROM DUAL
 ),
-base_filtered AS (
+-- Single scan of all relevant test runs in the 4-week window
+all_runs AS (
     SELECT
-        a.NAME AS app_name,
         tc.ID AS test_class_id,
         tc.NAME AS test_class_name,
+        NVL(tt.TAG, 'No Tag') AS tag,
         tr.STATUS,
         tr.START_TIME,
-        NVL(tt.TAG, 'No Tag') AS tag,
+        tr.TEST_LAUNCH_ID,
+        -- Flag if run is in current week (avoids repeated date comparisons)
+        CASE 
+            WHEN tr.START_TIME >= (SELECT start_date FROM input_params)
+             AND tr.START_TIME <= (SELECT end_date FROM input_params)
+            THEN 1 
+            ELSE 0 
+        END AS is_current_week,
+        -- Single ROW_NUMBER for latest run per class+tag
         ROW_NUMBER() OVER (
             PARTITION BY tc.ID, NVL(tt.TAG, 'No Tag')
             ORDER BY tr.START_TIME DESC
-        ) AS rn_latest_run
+        ) AS rn_latest_overall
     FROM APPLICATION a
     JOIN TEST_CLASS tc ON tc.APP_ID = a.ID
     JOIN TEST t ON t.TEST_CLASS_ID = tc.ID
@@ -26,99 +35,93 @@ base_filtered AS (
     LEFT JOIN TEST_TAG tt ON tt.TEST_ID = t.ID AND tt.TEST_LAUNCH_ID = tl.ID
     WHERE a.NAME = (SELECT app_name FROM input_params)
       AND tl.REGRESSION = 1
-      AND tr.START_TIME BETWEEN 
-              (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
-              AND (SELECT end_date FROM input_params)
+      AND tr.START_TIME >= (SELECT start_date FROM input_params) - INTERVAL '21' DAY
+      AND tr.START_TIME <= (SELECT end_date FROM input_params)
 ),
-latest_runs_status AS (
+-- Aggregate current week stats (single group by)
+current_week_agg AS (
     SELECT
         test_class_id,
+        test_class_name,
         tag,
-        STATUS AS latest_status,
-        START_TIME AS latest_start_time
-    FROM base_filtered
-    WHERE rn_latest_run = 1
+        COUNT(CASE WHEN STATUS = 'PASSED' THEN 1 END) AS passed_count,
+        COUNT(*) AS total_count
+    FROM all_runs
+    WHERE is_current_week = 1
+    GROUP BY test_class_id, test_class_name, tag
 ),
-current_week_stats AS (
-    -- Stats for tests that ran THIS week
+-- Get the latest run info (single filter on rn = 1)
+latest_run_info AS (
     SELECT
-        bf.test_class_id,
-        bf.test_class_name,
-        bf.tag,
-        COUNT(CASE WHEN bf.status = 'PASSED' THEN 1 END) AS passed_this_week,
-        COUNT(*) AS total_runs_this_week,
-        1 AS ran_this_week
-    FROM base_filtered bf
-    CROSS JOIN input_params p
-    WHERE bf.start_time BETWEEN p.start_date AND p.end_date
-    GROUP BY bf.test_class_id, bf.test_class_name, bf.tag
+        test_class_id,
+        test_class_name,
+        tag,
+        START_TIME AS last_run_time,
+        STATUS AS last_run_status,
+        TEST_LAUNCH_ID AS last_launch_id,
+        is_current_week AS last_run_in_current_week
+    FROM all_runs
+    WHERE rn_latest_overall = 1
 ),
-stale_stats AS (
-    -- For stale tests, get their stats from when they LAST ran
+-- For stale tests only: get stats from their last launch
+stale_last_launch_agg AS (
     SELECT
-        bf.test_class_id,
-        bf.test_class_name,
-        bf.tag,
-        COUNT(CASE WHEN bf.status = 'PASSED' THEN 1 END) AS passed_last_run,
-        COUNT(*) AS total_runs_last_run
-    FROM base_filtered bf
-    WHERE bf.rn_latest_run <= (
-        -- Get all runs from the same launch as the latest run
-        SELECT COUNT(*)
-        FROM base_filtered bf2
-        WHERE bf2.test_class_id = bf.test_class_id
-          AND bf2.tag = bf.tag
-          AND DATE_TRUNC('day', bf2.start_time) = DATE_TRUNC('day', (
-              SELECT MAX(bf3.start_time)
-              FROM base_filtered bf3
-              WHERE bf3.test_class_id = bf.test_class_id
-                AND bf3.tag = bf.tag
-          ))
-    )
-    GROUP BY bf.test_class_id, bf.test_class_name, bf.tag
+        ar.test_class_id,
+        ar.tag,
+        COUNT(CASE WHEN ar.STATUS = 'PASSED' THEN 1 END) AS passed_count,
+        COUNT(*) AS total_count
+    FROM all_runs ar
+    INNER JOIN latest_run_info lri
+        ON ar.test_class_id = lri.test_class_id
+       AND ar.tag = lri.tag
+       AND ar.TEST_LAUNCH_ID = lri.last_launch_id
+    WHERE lri.last_run_in_current_week = 0  -- Only for stale tests
+    GROUP BY ar.test_class_id, ar.tag
 )
 SELECT
     (SELECT app_name FROM input_params) AS app_name,
-    COALESCE(cws.test_class_id, ss.test_class_id) AS test_class_id,
-    COALESCE(cws.test_class_name, ss.test_class_name) AS test_class_name,
-    COALESCE(cws.tag, ss.tag) AS tag,
-    lrs.latest_start_time AS last_run_time,
-    lrs.latest_status AS last_run_status,
+    lri.test_class_id,
+    lri.test_class_name,
+    lri.tag,
+    lri.last_run_time,
+    lri.last_run_status,
     
-    -- Use current week stats if available, otherwise use stale stats
-    COALESCE(cws.passed_this_week, ss.passed_last_run, 0) AS passed_this_week,
-    COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0) AS total_runs_this_week,
+    -- Use current week stats if available, otherwise stale launch stats
+    COALESCE(cwa.passed_count, sla.passed_count, 0) AS passed_this_week,
+    COALESCE(cwa.total_count, sla.total_count, 0) AS total_runs_this_week,
     
-    -- Pass rate percentage
+    -- Pass rate calculation
     CASE 
-        WHEN COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0) > 0 
+        WHEN COALESCE(cwa.total_count, sla.total_count, 0) > 0 
         THEN ROUND(
-            COALESCE(cws.passed_this_week, ss.passed_last_run, 0) * 100.0 / 
-            COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0), 
+            COALESCE(cwa.passed_count, sla.passed_count, 0) * 100.0 / 
+            COALESCE(cwa.total_count, sla.total_count, 0), 
             2
         )
         ELSE 0 
     END AS pass_rate_percent,
     
-    -- Has at least one pass
-    CASE WHEN COALESCE(cws.passed_this_week, ss.passed_last_run, 0) > 0 THEN 1 ELSE 0 END AS has_passed_this_week,
+    -- Has passed flag
+    CASE 
+        WHEN COALESCE(cwa.passed_count, sla.passed_count, 0) > 0 
+        THEN 1 
+        ELSE 0 
+    END AS has_passed_this_week,
     
     -- Activity status
     CASE
-        WHEN cws.ran_this_week = 1 THEN 'Active'
+        WHEN lri.last_run_in_current_week = 1 THEN 'Active'
         ELSE 'Stale'
     END AS test_run_status
     
-FROM latest_runs_status lrs
-LEFT JOIN current_week_stats cws
-    ON lrs.test_class_id = cws.test_class_id
-   AND lrs.tag = cws.tag
-LEFT JOIN stale_stats ss
-    ON lrs.test_class_id = ss.test_class_id
-   AND lrs.tag = ss.tag
-ORDER BY 
-    COALESCE(cws.test_class_name, ss.test_class_name), 
-    COALESCE(cws.tag, ss.tag);
+FROM latest_run_info lri
+LEFT JOIN current_week_agg cwa
+    ON lri.test_class_id = cwa.test_class_id
+   AND lri.tag = cwa.tag
+LEFT JOIN stale_last_launch_agg sla
+    ON lri.test_class_id = sla.test_class_id
+   AND lri.tag = sla.tag
+ORDER BY lri.test_class_name, lri.tag;
 
 
 ```
