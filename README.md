@@ -1,531 +1,124 @@
 ```sql
--- ============================================================================
--- TEST DATA GENERATION FOR QA PORTAL
--- Creates realistic test scenarios: Active, Stale, Mixed pass/fail, etc.
--- ============================================================================
-
--- Clean up existing test data (optional - comment out if you want to keep existing data)
--- DELETE FROM TEST_TAG WHERE TEST_LAUNCH_ID IN (SELECT ID FROM TEST_LAUNCH WHERE APP_ID = 1);
--- DELETE FROM TEST_RUN WHERE TEST_LAUNCH_ID IN (SELECT ID FROM TEST_LAUNCH WHERE APP_ID = 1);
--- DELETE FROM TEST_LAUNCH WHERE APP_ID = 1;
--- DELETE FROM TEST WHERE TEST_CLASS_ID IN (SELECT ID FROM TEST_CLASS WHERE APP_ID = 1);
--- DELETE FROM TEST_CLASS WHERE APP_ID = 1;
--- DELETE FROM APPLICATION WHERE NAME = 'TestApp';
-
--- ============================================================================
--- 1. CREATE APPLICATION
--- ============================================================================
-INSERT INTO APPLICATION (ID, CREATED, NAME)
-VALUES (1001, SYSTIMESTAMP, 'TestApp');
-
--- ============================================================================
--- 2. CREATE ENVIRONMENT
--- ============================================================================
-INSERT INTO ENVIRONMENTS (ID, CREATED, NAME)
-VALUES (2001, SYSTIMESTAMP, 'QA');
-
--- ============================================================================
--- 3. CREATE USER
--- ============================================================================
-INSERT INTO USERS (ID, CREATED, NAME)
-VALUES (3001, SYSTIMESTAMP, 'test.user');
-
--- ============================================================================
--- 4. CREATE TEST CLASSES (Different Scenarios)
--- ============================================================================
-
--- Active Test Class (ran this week, all passed)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4001, SYSTIMESTAMP, 'Login Tests', 'LoginTests', 1001);
-
--- Active Test Class (ran this week, some failures)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4002, SYSTIMESTAMP, 'Payment Tests', 'PaymentTests', 1001);
-
--- Stale Test Class (ran 2 weeks ago, not this week)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4003, SYSTIMESTAMP, 'Legacy API Tests', 'LegacyAPITests', 1001);
-
--- Active Flaky Test Class (passed and failed this week)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4004, SYSTIMESTAMP, 'UI Animation Tests', 'UIAnimationTests', 1001);
-
--- Stale Test Class (ran 3 weeks ago)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4005, SYSTIMESTAMP, 'Performance Tests', 'PerformanceTests', 1001);
-
--- Active Test Class (ran this week, all failed)
-INSERT INTO TEST_CLASS (ID, CREATED, DISPLAY_NAME, NAME, APP_ID)
-VALUES (4006, SYSTIMESTAMP, 'Database Migration Tests', 'DBMigrationTests', 1001);
-
--- ============================================================================
--- 5. CREATE TESTS (Multiple tests per class)
--- ============================================================================
-
--- LoginTests - 3 tests
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5001, SYSTIMESTAMP, 'Test Valid Login', 'testValidLogin', 4001);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5002, SYSTIMESTAMP, 'Test Invalid Password', 'testInvalidPassword', 4001);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5003, SYSTIMESTAMP, 'Test Locked Account', 'testLockedAccount', 4001);
-
--- PaymentTests - 4 tests
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5004, SYSTIMESTAMP, 'Test Credit Card Payment', 'testCreditCardPayment', 4002);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5005, SYSTIMESTAMP, 'Test PayPal Payment', 'testPayPalPayment', 4002);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5006, SYSTIMESTAMP, 'Test Failed Payment', 'testFailedPayment', 4002);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5007, SYSTIMESTAMP, 'Test Refund', 'testRefund', 4002);
-
--- LegacyAPITests - 2 tests
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5008, SYSTIMESTAMP, 'Test Legacy Endpoint', 'testLegacyEndpoint', 4003);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5009, SYSTIMESTAMP, 'Test Deprecated API', 'testDeprecatedAPI', 4003);
-
--- UIAnimationTests - 2 tests (flaky)
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5010, SYSTIMESTAMP, 'Test Smooth Transitions', 'testSmoothTransitions', 4004);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5011, SYSTIMESTAMP, 'Test Loading Spinner', 'testLoadingSpinner', 4004);
-
--- PerformanceTests - 3 tests
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5012, SYSTIMESTAMP, 'Test Page Load Time', 'testPageLoadTime', 4005);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5013, SYSTIMESTAMP, 'Test API Response Time', 'testAPIResponseTime', 4005);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5014, SYSTIMESTAMP, 'Test Database Query Speed', 'testDBQuerySpeed', 4005);
-
--- DBMigrationTests - 2 tests (all failed this week)
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5015, SYSTIMESTAMP, 'Test Schema Update', 'testSchemaUpdate', 4006);
-
-INSERT INTO TEST (ID, CREATED, DISPLAY_NAME, METHOD_NAME, TEST_CLASS_ID)
-VALUES (5016, SYSTIMESTAMP, 'Test Data Migration', 'testDataMigration', 4006);
-
--- ============================================================================
--- 6. CREATE TEST LAUNCHES (Different weeks)
--- ============================================================================
-
--- Current Week (Oct 21-27, 2025) - Multiple launches
-INSERT INTO TEST_LAUNCH (ID, CREATED, START_TIME, END_TIME, REGRESSION, GIT_BRANCH, 
-                         TOTAL, PASSED, FAILED, ABORTED, DISABLED, IGNORED,
-                         APP_ID, ENV_ID, USER_ID)
-VALUES (6001, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:00:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:45:00', 'YYYY-MM-DD HH24:MI:SS'),
-        1, 'main', 10, 7, 3, 0, 0, 0, 1001, 2001, 3001);
-
-INSERT INTO TEST_LAUNCH (ID, CREATED, START_TIME, END_TIME, REGRESSION, GIT_BRANCH, 
-                         TOTAL, PASSED, FAILED, ABORTED, DISABLED, IGNORED,
-                         APP_ID, ENV_ID, USER_ID)
-VALUES (6002, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:30:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        1, 'main', 10, 8, 2, 0, 0, 0, 1001, 2001, 3001);
-
-INSERT INTO TEST_LAUNCH (ID, CREATED, START_TIME, END_TIME, REGRESSION, GIT_BRANCH, 
-                         TOTAL, PASSED, FAILED, ABORTED, DISABLED, IGNORED,
-                         APP_ID, ENV_ID, USER_ID)
-VALUES (6003, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:00:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:50:00', 'YYYY-MM-DD HH24:MI:SS'),
-        1, 'main', 10, 6, 4, 0, 0, 0, 1001, 2001, 3001);
-
--- 2 Weeks Ago (Oct 7-13, 2025) - Stale
-INSERT INTO TEST_LAUNCH (ID, CREATED, START_TIME, END_TIME, REGRESSION, GIT_BRANCH, 
-                         TOTAL, PASSED, FAILED, ABORTED, DISABLED, IGNORED,
-                         APP_ID, ENV_ID, USER_ID)
-VALUES (6004, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:00:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:30:00', 'YYYY-MM-DD HH24:MI:SS'),
-        1, 'main', 5, 5, 0, 0, 0, 0, 1001, 2001, 3001);
-
--- 3 Weeks Ago (Sep 30 - Oct 6, 2025) - Stale
-INSERT INTO TEST_LAUNCH (ID, CREATED, START_TIME, END_TIME, REGRESSION, GIT_BRANCH, 
-                         TOTAL, PASSED, FAILED, ABORTED, DISABLED, IGNORED,
-                         APP_ID, ENV_ID, USER_ID)
-VALUES (6005, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-01 09:00:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-01 09:40:00', 'YYYY-MM-DD HH24:MI:SS'),
-        1, 'main', 3, 3, 0, 0, 0, 0, 1001, 2001, 3001);
-
--- ============================================================================
--- 7. CREATE TEST RUNS (Individual test executions)
--- ============================================================================
-
--- Launch 6001 (Oct 21) - LoginTests: All Passed (3 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7001, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:10:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5001, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7002, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:11:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5002, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7003, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:16:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:20:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5003, 6001);
-
--- Launch 6001 (Oct 21) - PaymentTests: 2 Passed, 2 Failed (4 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7004, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:21:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:25:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5004, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7005, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:26:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:30:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5005, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7006, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:31:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:35:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5006, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7007, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:36:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:40:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5007, 6001);
-
--- Launch 6001 (Oct 21) - UIAnimationTests: 1 Passed, 1 Failed (Flaky - 2 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7008, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:41:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:43:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5010, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7009, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:44:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:45:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5011, 6001);
-
--- Launch 6001 (Oct 21) - DBMigrationTests: Both Failed (2 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7010, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:41:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:43:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5015, 6001);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7011, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-21 09:44:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-21 09:45:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5016, 6001);
-
--- Launch 6002 (Oct 23) - LoginTests: All Passed (3 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7012, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:35:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 14:40:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5001, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7013, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:41:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 14:45:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5002, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7014, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:46:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 14:50:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5003, 6002);
-
--- Launch 6002 (Oct 23) - PaymentTests: 3 Passed, 1 Failed (4 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7015, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:51:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 14:55:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5004, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7016, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 14:56:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:00:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5005, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7017, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 15:01:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5006, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7018, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 15:06:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:10:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5007, 6002);
-
--- Launch 6002 (Oct 23) - UIAnimationTests: Both Passed (Flaky test now passing - 2 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7019, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 15:11:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:13:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5010, 6002);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7020, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-23 15:14:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-23 15:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5011, 6002);
-
--- Launch 6003 (Oct 25) - LoginTests: All Passed (3 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7021, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:10:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5001, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7022, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:11:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5002, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7023, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:16:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:20:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5003, 6003);
-
--- Launch 6003 (Oct 25) - PaymentTests: 1 Passed, 3 Failed (4 tests - getting worse!)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7024, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:21:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:25:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5004, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7025, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:26:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:30:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5005, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7026, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:31:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:35:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5006, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7027, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:36:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:40:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5007, 6003);
-
--- Launch 6003 (Oct 25) - UIAnimationTests: 1 Passed, 1 Failed (Flaky again - 2 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7028, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:41:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:45:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'FAILED', 5010, 6003);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7029, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-25 10:46:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-25 10:50:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5011, 6003);
-
--- Launch 6004 (Oct 8) - LegacyAPITests: All Passed (STALE - 2 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7030, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5008, 6004);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7031, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:16:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:25:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5009, 6004);
-
--- Launch 6004 (Oct 8) - LoginTests: All Passed (STALE - 3 tests, showing it was running 2 weeks ago)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7032, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:10:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5001, 6004);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7033, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:11:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5002, 6004);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7034, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-08 11:16:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-08 11:20:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5003, 6004);
-
--- Launch 6005 (Oct 1) - PerformanceTests: All Passed (VERY STALE - 3 tests)
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7035, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-01 09:05:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-01 09:15:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5012, 6005);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7036, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-01 09:16:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-01 09:25:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5013, 6005);
-
-INSERT INTO TEST_RUN (ID, CREATED, START_TIME, END_TIME, STATUS, TEST_ID, TEST_LAUNCH_ID)
-VALUES (7037, SYSTIMESTAMP, 
-        TO_TIMESTAMP('2025-10-01 09:26:00', 'YYYY-MM-DD HH24:MI:SS'),
-        TO_TIMESTAMP('2025-10-01 09:35:00', 'YYYY-MM-DD HH24:MI:SS'),
-        'PASSED', 5014, 6005);
-
--- ============================================================================
--- 8. CREATE TEST TAGS (Different tags for different test types)
--- ============================================================================
-
--- Launch 6001 (Oct 21) - Tags
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8001, SYSTIMESTAMP, 'SMOKE', 5001, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8002, SYSTIMESTAMP, 'SMOKE', 5002, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8003, SYSTIMESTAMP, 'SMOKE', 5003, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8004, SYSTIMESTAMP, 'INTEGRATION', 5004, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8005, SYSTIMESTAMP, 'INTEGRATION', 5005, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8006, SYSTIMESTAMP, 'INTEGRATION', 5006, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8007, SYSTIMESTAMP, 'INTEGRATION', 5007, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8008, SYSTIMESTAMP, 'UI', 5010, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8009, SYSTIMESTAMP, 'UI', 5011, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8010, SYSTIMESTAMP, 'DATABASE', 5015, 6001);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8011, SYSTIMESTAMP, 'DATABASE', 5016, 6001);
-
--- Launch 6002 (Oct 23) - Tags
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8012, SYSTIMESTAMP, 'SMOKE', 5001, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8013, SYSTIMESTAMP, 'SMOKE', 5002, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8014, SYSTIMESTAMP, 'SMOKE', 5003, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8015, SYSTIMESTAMP, 'INTEGRATION', 5004, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8016, SYSTIMESTAMP, 'INTEGRATION', 5005, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8017, SYSTIMESTAMP, 'INTEGRATION', 5006, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8018, SYSTIMESTAMP, 'INTEGRATION', 5007, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8019, SYSTIMESTAMP, 'UI', 5010, 6002);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8020, SYSTIMESTAMP, 'UI', 5011, 6002);
-
--- Launch 6003 (Oct 25) - Tags
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8021, SYSTIMESTAMP, 'SMOKE', 5001, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8022, SYSTIMESTAMP, 'SMOKE', 5002, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8023, SYSTIMESTAMP, 'SMOKE', 5003, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8024, SYSTIMESTAMP, 'INTEGRATION', 5004, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8025, SYSTIMESTAMP, 'INTEGRATION', 5005, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8026, SYSTIMESTAMP, 'INTEGRATION', 5006, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8027, SYSTIMESTAMP, 'INTEGRATION', 5007, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8028, SYSTIMESTAMP, 'UI', 5010, 6003);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8029, SYSTIMESTAMP, 'UI', 5011, 6003);
-
--- Launch 6004 (Oct 8) - Tags (STALE)
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8030, SYSTIMESTAMP, 'LEGACY', 5008, 6004);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8031, SYSTIMESTAMP, 'LEGACY', 5009, 6004);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8032, SYSTIMESTAMP, 'SMOKE', 5001, 6004);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8033, SYSTIMESTAMP, 'SMOKE', 5002, 6004);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8034, SYSTIMESTAMP, 'SMOKE', 5003, 6004);
-
--- Launch 6005 (Oct 1) - Tags (VERY STALE)
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8035, SYSTIMESTAMP, 'PERFORMANCE', 5012, 6005);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8036, SYSTIMESTAMP, 'PERFORMANCE', 5013, 6005);
-
-INSERT INTO TEST_TAG (ID, CREATED, TAG, TEST_ID, TEST_LAUNCH_ID)
-VALUES (8037, SYSTIMESTAMP, 'PERFORMANCE', 5014, 6005);
-
-COMMIT;
-
-
-
+WITH input_params AS (
+    SELECT
+        'TestApp' AS app_name,
+        TO_TIMESTAMP('2025-10-21 00:00:00', 'YYYY-MM-DD HH24:MI:SS') AS start_date,
+        TO_TIMESTAMP('2025-10-27 23:59:59', 'YYYY-MM-DD HH24:MI:SS') AS end_date
+    FROM DUAL
+),
+base_filtered AS (
+    SELECT
+        a.NAME AS app_name,
+        tc.ID AS test_class_id,
+        tc.NAME AS test_class_name,
+        tr.STATUS,
+        tr.START_TIME,
+        NVL(tt.TAG, 'No Tag') AS tag,
+        ROW_NUMBER() OVER (
+            PARTITION BY tc.ID, NVL(tt.TAG, 'No Tag')
+            ORDER BY tr.START_TIME DESC
+        ) AS rn_latest_run
+    FROM APPLICATION a
+    JOIN TEST_CLASS tc ON tc.APP_ID = a.ID
+    JOIN TEST t ON t.TEST_CLASS_ID = tc.ID
+    JOIN TEST_RUN tr ON tr.TEST_ID = t.ID
+    JOIN TEST_LAUNCH tl ON tr.TEST_LAUNCH_ID = tl.ID
+    LEFT JOIN TEST_TAG tt ON tt.TEST_ID = t.ID AND tt.TEST_LAUNCH_ID = tl.ID
+    WHERE a.NAME = (SELECT app_name FROM input_params)
+      AND tl.REGRESSION = 1
+      AND tr.START_TIME BETWEEN 
+              (SELECT start_date FROM input_params) - INTERVAL '21' DAY 
+              AND (SELECT end_date FROM input_params)
+),
+latest_runs_status AS (
+    SELECT
+        test_class_id,
+        tag,
+        STATUS AS latest_status,
+        START_TIME AS latest_start_time
+    FROM base_filtered
+    WHERE rn_latest_run = 1
+),
+current_week_stats AS (
+    -- Stats for tests that ran THIS week
+    SELECT
+        bf.test_class_id,
+        bf.test_class_name,
+        bf.tag,
+        COUNT(CASE WHEN bf.status = 'PASSED' THEN 1 END) AS passed_this_week,
+        COUNT(*) AS total_runs_this_week,
+        1 AS ran_this_week
+    FROM base_filtered bf
+    CROSS JOIN input_params p
+    WHERE bf.start_time BETWEEN p.start_date AND p.end_date
+    GROUP BY bf.test_class_id, bf.test_class_name, bf.tag
+),
+stale_stats AS (
+    -- For stale tests, get their stats from when they LAST ran
+    SELECT
+        bf.test_class_id,
+        bf.test_class_name,
+        bf.tag,
+        COUNT(CASE WHEN bf.status = 'PASSED' THEN 1 END) AS passed_last_run,
+        COUNT(*) AS total_runs_last_run
+    FROM base_filtered bf
+    WHERE bf.rn_latest_run <= (
+        -- Get all runs from the same launch as the latest run
+        SELECT COUNT(*)
+        FROM base_filtered bf2
+        WHERE bf2.test_class_id = bf.test_class_id
+          AND bf2.tag = bf.tag
+          AND DATE_TRUNC('day', bf2.start_time) = DATE_TRUNC('day', (
+              SELECT MAX(bf3.start_time)
+              FROM base_filtered bf3
+              WHERE bf3.test_class_id = bf.test_class_id
+                AND bf3.tag = bf.tag
+          ))
+    )
+    GROUP BY bf.test_class_id, bf.test_class_name, bf.tag
+)
+SELECT
+    (SELECT app_name FROM input_params) AS app_name,
+    COALESCE(cws.test_class_id, ss.test_class_id) AS test_class_id,
+    COALESCE(cws.test_class_name, ss.test_class_name) AS test_class_name,
+    COALESCE(cws.tag, ss.tag) AS tag,
+    lrs.latest_start_time AS last_run_time,
+    lrs.latest_status AS last_run_status,
+    
+    -- Use current week stats if available, otherwise use stale stats
+    COALESCE(cws.passed_this_week, ss.passed_last_run, 0) AS passed_this_week,
+    COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0) AS total_runs_this_week,
+    
+    -- Pass rate percentage
+    CASE 
+        WHEN COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0) > 0 
+        THEN ROUND(
+            COALESCE(cws.passed_this_week, ss.passed_last_run, 0) * 100.0 / 
+            COALESCE(cws.total_runs_this_week, ss.total_runs_last_run, 0), 
+            2
+        )
+        ELSE 0 
+    END AS pass_rate_percent,
+    
+    -- Has at least one pass
+    CASE WHEN COALESCE(cws.passed_this_week, ss.passed_last_run, 0) > 0 THEN 1 ELSE 0 END AS has_passed_this_week,
+    
+    -- Activity status
+    CASE
+        WHEN cws.ran_this_week = 1 THEN 'Active'
+        ELSE 'Stale'
+    END AS test_run_status
+    
+FROM latest_runs_status lrs
+LEFT JOIN current_week_stats cws
+    ON lrs.test_class_id = cws.test_class_id
+   AND lrs.tag = cws.tag
+LEFT JOIN stale_stats ss
+    ON lrs.test_class_id = ss.test_class_id
+   AND lrs.tag = ss.tag
+ORDER BY 
+    COALESCE(cws.test_class_name, ss.test_class_name), 
+    COALESCE(cws.tag, ss.tag);
 
 
 ```
