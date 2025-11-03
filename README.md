@@ -32,4 +32,18 @@ REFERENCES QAPORTAL.TAG(ID);
 
 -- Step 6: (Optional) Drop old TAG column after verification
 -- ALTER TABLE QAPORTAL.TEST_TAG DROP COLUMN TAG;
+
+-- Should return 0 if all tags migrated properly
+SELECT COUNT(*) AS unmapped_tags
+FROM QAPORTAL.TEST_TAG
+WHERE TAG IS NOT NULL AND TAG_ID IS NULL;
+
+-- Check new tag table
+SELECT * FROM QAPORTAL.TAG FETCH FIRST 10 ROWS ONLY;
+
+-- Check sample mappings
+SELECT tt.TAG, t.NAME
+FROM QAPORTAL.TEST_TAG tt
+JOIN QAPORTAL.TAG t ON tt.TAG_ID = t.ID
+FETCH FIRST 10 ROWS ONLY;
 ```
