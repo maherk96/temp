@@ -1,26 +1,56 @@
-```sql
--- 1️⃣ Add APP_ID column to TAG
-ALTER TABLE QAPORTAL.TAG ADD (APP_ID NUMBER(19,0));
+```java
+@Entity
+@Table(name = "TEST_TAG", schema = "QAPORTAL")
+@Getter
+@Setter
+public class TestTag {
 
--- 2️⃣ Add foreign key reference to APPLICATION
-ALTER TABLE QAPORTAL.TAG
-ADD CONSTRAINT FK_TAG_APP FOREIGN KEY (APP_ID)
-REFERENCES QAPORTAL.APPLICATION(ID);
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "test_tag_seq")
+    @SequenceGenerator(name = "test_tag_seq", sequenceName = "TEST_TAG_SEQ", allocationSize = 1)
+    private Long id;
 
--- 3️⃣ Populate APP_ID based on TEST_TAG → TEST_LAUNCH linkage
-MERGE INTO QAPORTAL.TAG t
-USING (
-    SELECT tt.TAG_ID, MAX(tl.APP_ID) KEEP (DENSE_RANK FIRST ORDER BY tl.CREATED DESC) AS APP_ID
-    FROM QAPORTAL.TEST_TAG tt
-    JOIN QAPORTAL.TEST_LAUNCH tl ON tt.TEST_LAUNCH_ID = tl.ID
-    WHERE tt.TAG_ID IS NOT NULL AND tl.APP_ID IS NOT NULL
-    GROUP BY tt.TAG_ID
-) src
-ON (t.ID = src.TAG_ID)
-WHEN MATCHED THEN
-UPDATE SET t.APP_ID = src.APP_ID;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "TAG_ID")
+    private Tag tag;
 
--- 4️⃣ Add uniqueness constraint so each app’s tag names are unique
-ALTER TABLE QAPORTAL.TAG
-ADD CONSTRAINT UK_TAG_APP UNIQUE (APP_ID, NAME);
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "TEST_ID")
+    private Test test;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "TEST_LAUNCH_ID")
+    private TestLaunch testLaunch;
+
+    @CreationTimestamp
+    @Column(nullable = false, updatable = false)
+    private Instant created;
+}
+
+@Entity
+@Table(
+    name = "TAG",
+    schema = "QAPORTAL",
+    uniqueConstraints = @UniqueConstraint(columnNames = {"APP_ID", "NAME"})
+)
+@Getter
+@Setter
+public class Tag {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(length = 50, nullable = false)
+    private String name;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "APP_ID", nullable = false)
+    private Application app;
+
+    @CreationTimestamp
+    @Column(nullable = false, updatable = false)
+    private Instant created;
+}
+
 ```
