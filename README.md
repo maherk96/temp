@@ -1,9 +1,22 @@
-SELECT DISTINCT tt.TAG
-FROM QAPORTAL.TEST_TAG tt
-JOIN QAPORTAL.TEST_LAUNCH tl
-    ON tt.TEST_LAUNCH_ID = tl.ID
-WHERE tl.APP_ID = :appId
-  AND tl.REGRESSION = 1
-  AND tl.CREATED >= ADD_MONTHS(SYSTIMESTAMP, -3)
-  AND tt.TAG IS NOT NULL
-ORDER BY tt.TAG;
+```java
+
+@Repository
+public interface TestTagRepository extends JpaRepository<TestTag, Long> {
+
+    @Query("""
+        SELECT DISTINCT tt.tag
+        FROM TestTag tt
+        JOIN tt.testLaunch tl
+        WHERE tl.app.id = :appId
+          AND tl.regression = 1
+          AND tl.created >= :threeMonthsAgo
+          AND tt.tag IS NOT NULL
+        ORDER BY tt.tag
+        """)
+    List<String> findDistinctTagsUsedInRegressionLast3MonthsByAppId(
+        @Param("appId") Long appId,
+        @Param("threeMonthsAgo") Instant threeMonthsAgo
+    );
+}
+
+```
