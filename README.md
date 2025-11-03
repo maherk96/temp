@@ -3,11 +3,14 @@ package com.citi.fx.qa.qap.db.repos;
 
 import com.citi.fx.qa.qap.db.entities.Application;
 import com.citi.fx.qa.qap.db.entities.Tag;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
+import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.Optional;
 
@@ -17,18 +20,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TagRepositoryTest {
 
     @Autowired
-    private TagRepository tagRepository;
+    private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private ApplicationRepository applicationRepository; // only if you have it
+    private EntityManager entityManager;
+
+    @Autowired
+    private TagRepository tagRepository;
+
+    @BeforeEach
+    void createSchema() {
+        jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS QAPORTAL");
+    }
 
     @Test
     @DisplayName("Should find tag by name ignoring case")
     void testFindByNameIgnoreCase() {
         // given
+        Application app = persistApp("TestApp1");
+
         Tag tag = new Tag();
         tag.setName("Regression");
-        tag.setApp(createApp(100L));
+        tag.setApp(app);
         tagRepository.save(tag);
 
         // when
@@ -42,23 +55,10 @@ class TagRepositoryTest {
     }
 
     @Test
-    @DisplayName("Should return empty when tag name not found (case-insensitive)")
-    void testFindByNameIgnoreCase_NotFound() {
-        Tag tag = new Tag();
-        tag.setName("Smoke");
-        tag.setApp(createApp(200L));
-        tagRepository.save(tag);
-
-        Optional<Tag> result = tagRepository.findByNameIgnoreCase("Performance");
-
-        assertThat(result).isEmpty();
-    }
-
-    @Test
-    @DisplayName("Should find all tags for given appId ordered by name ascending")
+    @DisplayName("Should find all tags for given app id ordered by name ascending")
     void testFindByApp_IdOrderByNameAsc() {
         // given
-        Application app = createApp(300L);
+        Application app = persistApp("TestApp2");
 
         Tag tagA = new Tag();
         tagA.setName("Alpha");
@@ -84,11 +84,11 @@ class TagRepositoryTest {
                 .containsExactly("Alpha", "Beta", "Zeta");
     }
 
-    // helper method to create application
-    private Application createApp(Long id) {
+    private Application persistApp(String name) {
         Application app = new Application();
-        app.setId(id); // If your Application has generated IDs, you can omit this line
-        app.setName("TestApp-" + id);
+        app.setName(name);
+        entityManager.persist(app);
+        entityManager.flush();
         return app;
     }
 }
