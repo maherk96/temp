@@ -1,23 +1,21 @@
 ```java
-private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
-
-@Transactional
-public TagDTO getOrCreateTag(String tagName, long appId) {
-    String lockKey = tagName.toLowerCase() + "_" + appId;
-    Object lock = locks.computeIfAbsent(lockKey, k -> new Object());
-    
-    synchronized (lock) {
-        try {
-            Optional<Tag> existing = tagRepository.findByNameIgnoreCaseAndAppId(tagName, appId);
-            if (existing.isPresent()) {
-                return tagMapper.toDTO(existing.get());
-            }
-            
-            TagDTO dto = TagDTO.createTag(tagName, appId);
-            return create(dto);
-        } finally {
-            locks.remove(lockKey);
-        }
+ @Transactional
+    public TagDTO getOrCreateTag(String tagName, long appId) {
+        return tagRepository.findByNameIgnoreCaseAndAppId(tagName, appId)
+                .map(tagMapper::toDTO)
+                .orElseGet(() -> {
+                    try {
+                        // Attempt to create a new tag
+                        TagDTO tagDTO = TagDTO.createTag(tagName, appId);
+                        return create(tagDTO);
+                    } catch (DataIntegrityViolationException e) {
+                        // Another thread/process inserted it concurrently — retrieve it
+                        return tagRepository.findByNameIgnoreCaseAndAppId(tagName, appId)
+                                .map(tagMapper::toDTO)
+                                .orElseThrow(() -> new IllegalStateException(
+                                        "Tag creation failed but tag not found afterward: " + tagName
+                                ));
+                    }
+                });
     }
-}
 ```
