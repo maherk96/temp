@@ -1,30 +1,90 @@
 ```java
-    @When("the client simulator replays new order single fix messages from the file {string}")
-    public void replay_fix_messages_from_file(String fileName) {
-        System.out.printf("🔁 Replaying FIX messages from file: %s%n", fileName);
+@GetMapping("/{id}")
+@Operation(
+    summary = "Weekly Regression Tag Analysis by Heatmap ID",
+    description = "Provides % of non-failed tests per tag per class for a heatmap and date"
+)
+public ResponseEntity<List<HeatmapAnalysisData>> getWeeklyTagRegressionData(
+        @PathVariable Long id,
+        @RequestParam(defaultValue = "startDate") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+        @RequestParam(defaultValue = "false") boolean regression
+) {
+    List<HeatmapAnalysisData> data = heatmapService.getHeatmapById(id, startDate, endDate, regression);
+    return ResponseEntity.ok(data);
+}
 
-        Stream<OrderInfo> messages = OrderParamProvider.nosFusionAlgoMessages();
-        messages.forEach(orderInfo -> {
-            System.out.println("➡ Sending FIX Message: " + orderInfo);
-            try {
-                clientSimulator
-                    .sendRawFixTradeMessage(orderInfo.message())
-                    .waitForExecutionReport(
-                        "BASIC_FLOW",
-                        Duration.ofSeconds(2),
-                        "Order should have pending new, new and trade execution types"
-                    );
-            } catch (Exception e) {
-                throw new RuntimeException("❌ Failed processing message: " + orderInfo, e);
-            }
-        });
+public List<HeatmapAnalysisData> getHeatmapById(
+        Long id,
+        LocalDate startDate,
+        LocalDate endDate,
+        boolean regression
+) {
+    try {
+        List<Long> tagIds = getTagIds(id);
+        Long appId = getAppId(id);
+
+        List<TestTagData> testTagData =
+                getAnalysisData(appId, startDate, endDate, tagIds, regression);
+
+        return buildHeatmapResponse(testTagData, startDate);
+
+    } catch (Exception e) {
+        log.error("Error generating weekly tag regression for heatmap {}: {}", id, e.getMessage(), e);
+        throw new IllegalStateException(e);
     }
+}
 
-    @Then("the service should produce {string}, {string} and {string} execution reports for each message")
-    public void verify_execution_report_types(String type1, String type2, String type3) {
-        // If you already validated within the send loop, this may just summarize results
-        System.out.printf("✅ Verified expected execution types: %s, %s, %s%n", type1, type2, type3);
-        clientSimulator.getPoolStatistics();
+private List<Long> getTagIds(Long heatmapId) {
+    return heatmapDomainHelper.getTagIDsByHeatmapId(heatmapId).toList();
+}
+
+private Long getAppId(Long heatmapId) {
+    return heatmapRepository
+            .findById(heatmapId)
+            .orElseThrow(() -> new IllegalArgumentException("Heatmap not found"))
+            .getApp()
+            .getId();
+}
+
+private HeatmapStatus determineStatus(LocalDate lastRun, LocalDate startDate) {
+    if (lastRun == null) return HeatmapStatus.STALE;
+    return lastRun.isAfter(startDate) ? HeatmapStatus.STALE : HeatmapStatus.ACTIVE;
+}
+
+private double calculatePassRate(int passed, int totalRuns) {
+    if (totalRuns == 0) return 0.0;
+    return (passed / (double) totalRuns) * 100;
+}
+
+private List<HeatmapAnalysisData> buildHeatmapResponse(
+        List<TestTagData> input,
+        LocalDate startDate
+) {
+    List<HeatmapAnalysisData> result = new ArrayList<>();
+
+    for (var dataSet : input) {
+        double passRate = calculatePassRate(dataSet.passed(), dataSet.totalTestRuns());
+        LocalDate lastRun = parseDate(dataSet.lastRun());
+
+        HeatmapStatus status = determineStatus(lastRun, startDate);
+
+        HeatmapAnalysisData dto = new HeatmapAnalysisData(
+                dataSet.testClassName(),
+                dataSet.tag(),
+                passRate,
+                status,
+                dataSet.totalTestRuns(),
+                lastRun,
+                dataSet.testRuns()
+        );
+
+        result.add(dto);
     }
+    return result;
+}
 
+private LocalDate parseDate(String raw) {
+    return raw == null ? null : LocalDate.parse(raw);
+}
 ```
