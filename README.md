@@ -1,12 +1,11 @@
 ```java
-
 private List<HeatmapAnalysisDTO> buildHeatmapResponse(
         List<TestTagStatisticsData> data,
         LocalDateTime userStartDate
 ) {
     DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd MMM yyyy");
 
-    // 1️⃣ Filter: For each className+tagName, keep only the LOWEST periodIdx
+    // Filter – keep most recent period per class/tag
     List<TestTagStatisticsData> filtered =
             data.stream()
                 .collect(Collectors.groupingBy(
@@ -15,28 +14,36 @@ private List<HeatmapAnalysisDTO> buildHeatmapResponse(
                 ))
                 .values()
                 .stream()
-                .map(Optional::get)
+                .flatMap(Optional::stream)
                 .toList();
 
-    // 2️⃣ Map to DTO
     return filtered.stream()
-        .map(row -> new HeatmapAnalysisDTO(
-                row.getClassName(),
-                row.getTagName(),
-                row.getPassedTests(),
-                row.getPassRate(),
-                row.getTotalTests(),
+        .map(row -> {
+            // derive ACTIVE/STALE from date, not index
+            HeatmapStatus status;
+            if (row.getLatestRunTime() == null) {
+                status = HeatmapStatus.STALE;
+            } else {
+                status = row.getLatestRunTime().isBefore(userStartDate)
+                        ? HeatmapStatus.STALE
+                        : HeatmapStatus.ACTIVE;
+            }
 
-                // ACTIVE only if periodIdx = 0
-                row.getPeriodIdx() == 0 ? HeatmapStatus.ACTIVE : HeatmapStatus.STALE,
+            String lastRun = row.getLatestRunTime() != null
+                    ? row.getLatestRunTime().format(fmt)
+                    : "N/A";
 
-                row.getLatestRunTime() != null
-                        ? row.getLatestRunTime().format(fmt)
-                        : "N/A",
-
-                // Your nice user-friendly explanation
-                row.getPeriodAnalysis(userStartDate)
-        ))
+            return new HeatmapAnalysisDTO(
+                    row.getClassName(),
+                    row.getTagName(),
+                    row.getPassedTests(),
+                    row.getPassRate(),
+                    row.getTotalTests(),
+                    status,
+                    lastRun,
+                    row.getPeriodAnalysis(userStartDate)
+            );
+        })
         .toList();
 }
 ```
