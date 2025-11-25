@@ -1,69 +1,35 @@
 ```java
-private List<HeatmapAnalysisDTO> buildHeatmapResponse(
-        List<TestTagStatisticsData> data,
-        LocalDateTime userStartDate
-) {
-    DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd MMM yyyy");
 
-    return data.stream()
-        .map(row -> new HeatmapAnalysisDTO(
-                row.getClassName(),
-                row.getTagName(),
-                row.getPassedTests(),
-                row.getPassRate(),
-                row.getTotalTests(),
+public String getPeriodAnalysis(LocalDateTime userStartDate) {
 
-                // ACTIVE if periodIdx == 0, else STALE
-                row.getPeriodIdx() == 0 ? HeatmapStatus.ACTIVE : HeatmapStatus.STALE,
-
-                // format latest run
-                row.getLatestRunTime() != null
-                        ? row.getLatestRunTime().format(fmt)
-                        : "N/A",
-
-                // period description
-                row.getPeriodAnalysis()
-        ))
-        .toList(); // Java 16+
-}
-
-public HeatmapDetailsDTO getHeatmapById(
-        Long id,
-        LocalDateTime startDate,
-        LocalDateTime endDate,
-        boolean regression
-) {
-    try {
-        var tagIds = getTagIds(id);
-        var appId = getAppId(id);
-
-        List<TestTagStatisticsData> testTagData =
-                getHeatmapAnalysisData(appId, startDate, endDate, tagIds.toArray(new Long[0]), regression);
-
-        var heatmap = heatmapDomainHelper.findHeatmapEntityById(id);
-
-        var username = heatmap.getUser() != null
-                ? heatmap.getUser().getName()
-                : "Unknown User";
-
-        HeatmapResponseDTO header = new HeatmapResponseDTO(
-                heatmap.getId(),
-                username,
-                heatmap.getName(),
-                heatmap.getDescription(),
-                heatmap.getDeleted(),
-                heatmap.getApp().getId(),
-                tagIds
-        );
-
-        return new HeatmapDetailsDTO(
-                header,
-                buildHeatmapResponse(testTagData, startDate)
-        );
-
-    } catch (Exception e) {
-        log.error("Error generating weekly tag regression for heatmap {}: {}", id, e.getMessage(), e);
-        throw new IllegalStateException(e);
+    if (latestRunTime == null) {
+        return "This test has never run.";
     }
+
+    String bucketStart = periodStart.format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
+    String selectedStart = userStartDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
+
+    return switch (periodIdx) {
+        case 0 -> String.format(
+                "This test ran in your selected period (%s).",
+                selectedStart
+        );
+        case 1 -> String.format(
+                "This test ran a week before your selected period (on %s). Your selected period starts on %s.",
+                bucketStart, selectedStart
+        );
+        case 2 -> String.format(
+                "This test ran two weeks before your selected period (on %s). Your selected period starts on %s.",
+                bucketStart, selectedStart
+        );
+        case 3 -> String.format(
+                "This test ran three weeks before your selected period (on %s). Your selected period starts on %s.",
+                bucketStart, selectedStart
+        );
+        default -> String.format(
+                "This test ran %d weeks before your selected period (on %s). Your selected period starts on %s.",
+                periodIdx, bucketStart, selectedStart
+        );
+    };
 }
 ```
