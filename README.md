@@ -1,35 +1,42 @@
 ```java
 
-public String getPeriodAnalysis(LocalDateTime userStartDate) {
+private List<HeatmapAnalysisDTO> buildHeatmapResponse(
+        List<TestTagStatisticsData> data,
+        LocalDateTime userStartDate
+) {
+    DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd MMM yyyy");
 
-    if (latestRunTime == null) {
-        return "This test has never run.";
-    }
+    // 1️⃣ Filter: For each className+tagName, keep only the LOWEST periodIdx
+    List<TestTagStatisticsData> filtered =
+            data.stream()
+                .collect(Collectors.groupingBy(
+                        row -> row.getClassName() + "|" + row.getTagName(),
+                        Collectors.minBy(Comparator.comparing(TestTagStatisticsData::getPeriodIdx))
+                ))
+                .values()
+                .stream()
+                .map(Optional::get)
+                .toList();
 
-    String bucketStart = periodStart.format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
-    String selectedStart = userStartDate.format(DateTimeFormatter.ofPattern("dd MMM yyyy"));
+    // 2️⃣ Map to DTO
+    return filtered.stream()
+        .map(row -> new HeatmapAnalysisDTO(
+                row.getClassName(),
+                row.getTagName(),
+                row.getPassedTests(),
+                row.getPassRate(),
+                row.getTotalTests(),
 
-    return switch (periodIdx) {
-        case 0 -> String.format(
-                "This test ran in your selected period (%s).",
-                selectedStart
-        );
-        case 1 -> String.format(
-                "This test ran a week before your selected period (on %s). Your selected period starts on %s.",
-                bucketStart, selectedStart
-        );
-        case 2 -> String.format(
-                "This test ran two weeks before your selected period (on %s). Your selected period starts on %s.",
-                bucketStart, selectedStart
-        );
-        case 3 -> String.format(
-                "This test ran three weeks before your selected period (on %s). Your selected period starts on %s.",
-                bucketStart, selectedStart
-        );
-        default -> String.format(
-                "This test ran %d weeks before your selected period (on %s). Your selected period starts on %s.",
-                periodIdx, bucketStart, selectedStart
-        );
-    };
+                // ACTIVE only if periodIdx = 0
+                row.getPeriodIdx() == 0 ? HeatmapStatus.ACTIVE : HeatmapStatus.STALE,
+
+                row.getLatestRunTime() != null
+                        ? row.getLatestRunTime().format(fmt)
+                        : "N/A",
+
+                // Your nice user-friendly explanation
+                row.getPeriodAnalysis(userStartDate)
+        ))
+        .toList();
 }
 ```
