@@ -1,204 +1,224 @@
 ```java
 
+package com.example.qaportal.heatmap;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.jpa.domain.Specification;
 
-import java.time.LocalDateTime;
-import java.util.*;
+import jakarta.persistence.criteria.*;
+import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-@ExtendWith(MockitoExtension.class)
-class HeatmapDataServiceTest {
+class HeatmapSpecificationTest {
 
-    @Mock
-    private DatabaseQueryExecutor queryExecutor;
+    @Mock private Root<Heatmap> root;
+    @Mock private CriteriaQuery<?> query;
+    @Mock private CriteriaBuilder cb;
 
-    @Mock
-    private HeatmapTagManagementService heatmapTagManagementService;
+    @Mock private Path<Object> namePath;
+    @Mock private Path<Object> descPath;
+    @Mock private Path<Object> userPath;
+    @Mock private Path<Object> userIdPath;
+    @Mock private Path<Object> isDefaultPath;
+    @Mock private Path<Object> isDeletedPath;
 
-    @Mock
-    private HeatmapManagementService heatmapManagementService;
+    @Mock private Predicate pSearch1;
+    @Mock private Predicate pSearch2;
+    @Mock private Predicate pSearchCombined;
 
-    @Mock
-    private TestTagStatisticsMapper mapper;
+    @Mock private Predicate pMyHeatmap;
+    @Mock private Predicate pCreatedOthers1;
+    @Mock private Predicate pCreatedOthers2;
+    @Mock private Predicate pCreatedCombined;
 
-    @Captor
-    private ArgumentCaptor<String> queryCaptor;
+    @Mock private Predicate pSystemHeatmap;
+    @Mock private Predicate pDeletedFalse;
 
-    @Captor
-    private ArgumentCaptor<Object[]> paramsCaptor;
-
-    private Map<String, String> qapQueries;
-
-    private HeatmapDataService service;
+    @Mock private Predicate pFinal;
 
     @BeforeEach
     void setup() {
-        qapQueries = new HashMap<>();
-        qapQueries.put("HeatmapAnalysisDataV2", "SELECT * FROM test WHERE tag IN (?)");
+        MockitoAnnotations.openMocks(this);
 
-        // Use SPY so we can stub private-like methods (buildQuery, prepareParameters etc.)
-        service = Mockito.spy(new HeatmapDataService(
-                queryExecutor,
-                qapQueries,
-                heatmapTagManagementService,
-                heatmapManagementService,
-                mapper
-        ));
+        // General mocks
+        when(root.get("name")).thenReturn(namePath);
+        when(root.get("description")).thenReturn(descPath);
+        when(root.get("user")).thenReturn(userPath);
+        when(userPath.get("id")).thenReturn(userIdPath);
+        when(root.get("isDefault")).thenReturn(isDefaultPath);
+        when(root.get("deleted")).thenReturn(isDeletedPath);
     }
 
-    // --------------------------------------------------------------------------------------
-    // 1. Happy-path test for getHeatmapById()
-    // --------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+
     @Test
-    void getHeatmapById_success() {
-        long heatmapId = 10L;
+    void test_searchPredicateAdded_whenSearchProvided() {
+        when(cb.lower(namePath)).thenReturn(namePath);
+        when(cb.lower(descPath)).thenReturn(descPath);
 
-        LocalDateTime start = LocalDateTime.now().minusDays(10);
-        LocalDateTime end = LocalDateTime.now();
+        when(cb.like(namePath, "%abc%")).thenReturn(pSearch1);
+        when(cb.like(descPath, "%abc%")).thenReturn(pSearch2);
+        when(cb.or(pSearch1, pSearch2)).thenReturn(pSearchCombined);
 
-        // Mock: heatmap tags
-        when(heatmapTagManagementService.getTagIdsByHeatmapId(heatmapId))
-                .thenReturn(List.of(100L, 200L));
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build("abc", null, 123L, true);
 
-        // Mock: Heatmap entity
-        Heatmap hm = mock(Heatmap.class);
-        User user = mock(User.class);
-        App app = mock(App.class);
+        Predicate returned = spec.toPredicate(root, query, cb);
 
-        when(hm.getId()).thenReturn(10L);
-        when(hm.getUser()).thenReturn(user);
-        when(user.getName()).thenReturn("TestUser");
-        when(hm.getName()).thenReturn("Sample Heatmap");
-        when(hm.getDescription()).thenReturn("desc");
-        when(hm.getDeleted()).thenReturn(false);
-        when(hm.getApp()).thenReturn(app);
-        when(app.getId()).thenReturn(50L);
-
-        when(heatmapManagementService.findEntityById(heatmapId)).thenReturn(hm);
-
-        // Mock: SQL builder + parameters
-        doReturn("SQL_QUERY").when(service).buildQuery(anyString(), anyInt());
-        doReturn(new Object[]{"param"}).when(service)
-                .prepareParameters(any(), any(), any(), anyBoolean(), any());
-
-        // Mock: status + period
-        doReturn(HeatmapStatus.OK).when(service).determineStatus(any(), any());
-        doReturn("Good").when(service).buildPeriodAnalysis(any(), any());
-
-        // Mock: DB results
-        TestTagStatisticsData row = mock(TestTagStatisticsData.class);
-        when(row.getClassName()).thenReturn("Clazz");
-        when(row.getTagName()).thenReturn("TagA");
-        when(row.getLatestRunTime()).thenReturn(LocalDateTime.now());
-        when(row.getPassedTests()).thenReturn(5);
-        when(row.getTotalTests()).thenReturn(6);
-        when(row.getPassRate()).thenReturn(80.0);
-
-        when(queryExecutor.executeQuery(anyString(), eq(mapper), any()))
-                .thenReturn(List.of(row));
-
-        // Run
-        HeatmapDetailsDTO dto =
-                service.getHeatmapById(heatmapId, start, end, false);
-
-        // Validate header
-        assertEquals(10L, dto.header().id());
-        assertEquals("TestUser", dto.header().createdBy());
-        assertEquals("Sample Heatmap", dto.header().name());
-
-        // Validate analysis section
-        assertEquals(1, dto.data().size());
-        HeatmapAnalysisDTO analysis = dto.data().get(0);
-
-        assertEquals("Clazz", analysis.className());
-        assertEquals("TagA", analysis.tagName());
-        assertEquals(5, analysis.passedTests());
-        assertEquals(80.0, analysis.passRate());
+        assertNotNull(returned);
+        verify(cb).like(namePath, "%abc%");
+        verify(cb).like(descPath, "%abc%");
     }
 
-    // --------------------------------------------------------------------------------------
-    // 2. getHeatmapById(): ensure custom exception is thrown when service fails
-    // --------------------------------------------------------------------------------------
-    @Test
-    void getHeatmapById_throwsHeatmapProcessingException() {
-        when(heatmapTagManagementService.getTagIdsByHeatmapId(anyLong()))
-                .thenThrow(new RuntimeException("DB fail"));
+    // -------------------------------------------------------------------------
 
-        assertThrows(
-                HeatmapDataService.HeatmapProcessingException.class,
-                () -> service.getHeatmapById(99L, LocalDateTime.now(), LocalDateTime.now(), false)
-        );
+    @Test
+    void test_noSearchPredicate_whenSearchBlank() {
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build("   ", null, 123L, true);
+
+        Predicate returned = spec.toPredicate(root, query, cb);
+        assertNotNull(returned);
+
+        verify(cb, never()).like(any(), anyString());
     }
 
-    // --------------------------------------------------------------------------------------
-    // 3. getHeatmapAnalysisData(): ensure correct query + params passed to the DB executor
-    // --------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+
     @Test
-    void getHeatmapAnalysisData_executesSqlCorrectly() {
+    void test_myHeatmap_predicateAdded() {
+        when(cb.equal(userIdPath, 99L)).thenReturn(pMyHeatmap);
 
-        doReturn("FINAL_SQL").when(service).buildQuery(anyString(), anyInt());
-        doReturn(new Object[]{"A"}).when(service)
-                .prepareParameters(any(), any(), any(), anyBoolean(), any());
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null, List.of(HeatmapType.MY_HEATMAP), 99L, true);
 
-        when(queryExecutor.executeQuery(any(), eq(mapper), any()))
-                .thenReturn(Collections.emptyList());
+        Predicate returned = spec.toPredicate(root, query, cb);
 
-        service.getHeatmapAnalysisData(
-                5L, LocalDateTime.now(), LocalDateTime.now(), new Long[]{1L, 2L}, false);
-
-        verify(queryExecutor).executeQuery(
-                queryCaptor.capture(),
-                eq(mapper),
-                paramsCaptor.capture()
-        );
-
-        assertEquals("FINAL_SQL", queryCaptor.getValue());
-        assertArrayEquals(new Object[]{"A"}, paramsCaptor.getValue());
+        assertNotNull(returned);
+        verify(cb).equal(userIdPath, 99L);
     }
 
-    // --------------------------------------------------------------------------------------
-    // 4. Most-recent-per-cell grouping logic
-    // --------------------------------------------------------------------------------------
+    // -------------------------------------------------------------------------
+
     @Test
-    void buildHeatmapResponse_keepsMostRecentEntryOnly() throws Exception {
+    void test_createdByOthers_predicateAdded() {
+        when(cb.notEqual(userIdPath, 50L)).thenReturn(pCreatedOthers1);
+        when(cb.isFalse(isDefaultPath)).thenReturn(pCreatedOthers2);
+        when(cb.and(pCreatedOthers1, pCreatedOthers2)).thenReturn(pCreatedCombined);
 
-        // Create rows
-        TestTagStatisticsData older = mock(TestTagStatisticsData.class);
-        TestTagStatisticsData newer = mock(TestTagStatisticsData.class);
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null, List.of(HeatmapType.CREATED_BY_OTHERS), 50L, true);
 
-        when(older.getClassName()).thenReturn("ClassA");
-        when(older.getTagName()).thenReturn("Tag1");
-        when(older.getLatestRunTime()).thenReturn(LocalDateTime.now().minusDays(1));
-        when(older.getPassedTests()).thenReturn(1);
-        when(older.getTotalTests()).thenReturn(2);
-        when(older.getPassRate()).thenReturn(50.0);
+        Predicate returned = spec.toPredicate(root, query, cb);
 
-        when(newer.getClassName()).thenReturn("ClassA");
-        when(newer.getTagName()).thenReturn("Tag1");
-        when(newer.getLatestRunTime()).thenReturn(LocalDateTime.now());
-        when(newer.getPassedTests()).thenReturn(5);
-        when(newer.getTotalTests()).thenReturn(6);
-        when(newer.getPassRate()).thenReturn(80.0);
+        assertNotNull(returned);
+        verify(cb).notEqual(userIdPath, 50L);
+        verify(cb).isFalse(isDefaultPath);
+    }
 
-        // Stub helpers
-        doReturn(HeatmapStatus.OK).when(service).determineStatus(any(), any());
-        doReturn("period").when(service).buildPeriodAnalysis(any(), any());
+    // -------------------------------------------------------------------------
 
-        // Call private-like method via spy (reflection not needed)
-        List<HeatmapAnalysisDTO> results =
-                service.buildHeatmapResponse(
-                        List.of(older, newer),
-                        LocalDateTime.now().minusDays(10)
+    @Test
+    void test_systemHeatmap_predicateAdded() {
+        when(cb.isTrue(isDefaultPath)).thenReturn(pSystemHeatmap);
+
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null, List.of(HeatmapType.SYSTEM_HEATMAP), 99L, true);
+
+        Predicate returned = spec.toPredicate(root, query, cb);
+        assertNotNull(returned);
+
+        verify(cb).isTrue(isDefaultPath);
+    }
+
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_multipleHeatmapTypes_orCombined() {
+        when(cb.equal(userIdPath, 1L)).thenReturn(pMyHeatmap);
+        when(cb.isTrue(isDefaultPath)).thenReturn(pSystemHeatmap);
+
+        Predicate[] orArray = {pMyHeatmap, pSystemHeatmap};
+        when(cb.or(orArray)).thenReturn(pCreatedCombined);
+
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null,
+                        List.of(HeatmapType.MY_HEATMAP, HeatmapType.SYSTEM_HEATMAP),
+                        1L,
+                        true);
+
+        Predicate result = spec.toPredicate(root, query, cb);
+
+        assertNotNull(result);
+        verify(cb).or(orArray);
+    }
+
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_deletedFilter_isAddedWhenNotIncluded() {
+        when(cb.isFalse(isDeletedPath)).thenReturn(pDeletedFalse);
+
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null, null, 10L, false);
+
+        Predicate returned = spec.toPredicate(root, query, cb);
+
+        assertNotNull(returned);
+        verify(cb).isFalse(isDeletedPath);
+    }
+
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_deletedFilter_notAddedWhenIncluded() {
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(null, null, 10L, true);
+
+        Predicate returned = spec.toPredicate(root, query, cb);
+
+        assertNotNull(returned);
+        verify(cb, never()).isFalse(isDeletedPath);
+    }
+
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_fullCombination_ofPredicates() {
+
+        // mock search
+        when(cb.lower(namePath)).thenReturn(namePath);
+        when(cb.lower(descPath)).thenReturn(descPath);
+        when(cb.like(namePath, "%heat%")).thenReturn(pSearch1);
+        when(cb.like(descPath, "%heat%")).thenReturn(pSearch2);
+        when(cb.or(pSearch1, pSearch2)).thenReturn(pSearchCombined);
+
+        // mock type group (MY_HEATMAP)
+        when(cb.equal(userIdPath, 77L)).thenReturn(pMyHeatmap);
+
+        // deleted = false
+        when(cb.isFalse(isDeletedPath)).thenReturn(pDeletedFalse);
+
+        // final AND
+        Predicate[] finalArray = {pSearchCombined, pMyHeatmap, pDeletedFalse};
+        when(cb.and(finalArray)).thenReturn(pFinal);
+
+        Specification<Heatmap> spec =
+                HeatmapSpecification.build(
+                        "heat",
+                        List.of(HeatmapType.MY_HEATMAP),
+                        77L,
+                        false
                 );
 
-        assertEquals(1, results.size());
-        assertEquals(80.0, results.get(0).passRate());  // only "newer" survives
+        Predicate result = spec.toPredicate(root, query, cb);
+
+        assertEquals(pFinal, result);
+        verify(cb).and(finalArray);
     }
 }
 
