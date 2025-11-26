@@ -1,316 +1,204 @@
 ```java
 
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.*;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Collectors;
 
-/**
- * Service responsible for retrieving Heatmap data, executing analysis queries,
- * aggregating results, and constructing DTOs for API responses.
- *
- * <p>This class orchestrates:</p>
- * <ul>
- *     <li>Loading heatmap metadata (app, user, tags)</li>
- *     <li>Executing the main SQL analysis query</li>
- *     <li>Selecting the most recent results per class/tag combination</li>
- *     <li>Mapping data to {@link HeatmapDetailsDTO} and child DTOs</li>
- * </ul>
- *
- * <p>The logic is intentionally separated into small, focused methods to
- * improve maintainability and simplify unit testing.</p>
- */
-@Slf4j
-@Service
-public class HeatmapDataService {
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-    private static final String HEATMAP_ANALYSIS_QUERY_KEY = "HeatmapAnalysisDataV2";
-    private static final DateTimeFormatter DATE_FMT =
-            DateTimeFormatter.ofPattern("dd MMM yyyy");
+@ExtendWith(MockitoExtension.class)
+class HeatmapDataServiceTest {
 
-    private final DatabaseQueryExecutor queryExecutor;
-    private final Map<String, String> qapQueries;
-    private final HeatmapTagManagementService heatmapTagManagementService;
-    private final HeatmapManagementService heatmapManagementService;
-    private final TestTagStatisticsMapper testTagStatisticsMapper;
+    @Mock
+    private DatabaseQueryExecutor queryExecutor;
 
-    /**
-     * Constructs the HeatmapDataService.
-     *
-     * @param queryExecutor                 Executes database SQL queries.
-     * @param qapQueries                    A map of query names → SQL strings.
-     * @param heatmapTagManagementService   Service for retrieving heatmap tag associations.
-     * @param heatmapManagementService      Service for retrieving Heatmap entities.
-     * @param testTagStatisticsMapper       Row mapper for query results.
-     */
-    @Autowired
-    public HeatmapDataService(DatabaseQueryExecutor queryExecutor,
-                              Map<String, String> qapQueries,
-                              HeatmapTagManagementService heatmapTagManagementService,
-                              HeatmapManagementService heatmapManagementService,
-                              TestTagStatisticsMapper testTagStatisticsMapper) {
+    @Mock
+    private HeatmapTagManagementService heatmapTagManagementService;
 
-        this.queryExecutor = Objects.requireNonNull(queryExecutor, "queryExecutor");
-        this.qapQueries = Objects.requireNonNull(qapQueries, "qapQueries");
-        this.heatmapTagManagementService =
-                Objects.requireNonNull(heatmapTagManagementService, "heatmapTagManagementService");
-        this.heatmapManagementService =
-                Objects.requireNonNull(heatmapManagementService, "heatmapManagementService");
-        this.testTagStatisticsMapper =
-                Objects.requireNonNull(testTagStatisticsMapper, "testTagStatisticsMapper");
+    @Mock
+    private HeatmapManagementService heatmapManagementService;
+
+    @Mock
+    private TestTagStatisticsMapper mapper;
+
+    @Captor
+    private ArgumentCaptor<String> queryCaptor;
+
+    @Captor
+    private ArgumentCaptor<Object[]> paramsCaptor;
+
+    private Map<String, String> qapQueries;
+
+    private HeatmapDataService service;
+
+    @BeforeEach
+    void setup() {
+        qapQueries = new HashMap<>();
+        qapQueries.put("HeatmapAnalysisDataV2", "SELECT * FROM test WHERE tag IN (?)");
+
+        // Use SPY so we can stub private-like methods (buildQuery, prepareParameters etc.)
+        service = Mockito.spy(new HeatmapDataService(
+                queryExecutor,
+                qapQueries,
+                heatmapTagManagementService,
+                heatmapManagementService,
+                mapper
+        ));
     }
 
-    /**
-     * Executes the underlying SQL to load raw test/tag statistics for a given application
-     * and tag selection within a date range.
-     *
-     * @param appId      ID of the application to filter by.
-     * @param startDate  Start of the date range.
-     * @param endDate    End of the date range.
-     * @param tagIds     Tag IDs to include in the analysis.
-     * @param regression If true, filters for regression results.
-     * @return List of raw {@link TestTagStatisticsData} rows.
-     * @throws IllegalStateException If the backing SQL query is missing.
-     */
-    public List<TestTagStatisticsData> getHeatmapAnalysisData(Long appId,
-                                                              LocalDateTime startDate,
-                                                              LocalDateTime endDate,
-                                                              Long[] tagIds,
-                                                              boolean regression) {
+    // --------------------------------------------------------------------------------------
+    // 1. Happy-path test for getHeatmapById()
+    // --------------------------------------------------------------------------------------
+    @Test
+    void getHeatmapById_success() {
+        long heatmapId = 10L;
 
-        String baseQuery = qapQueries.get(HEATMAP_ANALYSIS_QUERY_KEY);
-        if (baseQuery == null) {
-            throw new IllegalStateException(
-                    "Missing query for key: " + HEATMAP_ANALYSIS_QUERY_KEY);
-        }
+        LocalDateTime start = LocalDateTime.now().minusDays(10);
+        LocalDateTime end = LocalDateTime.now();
 
-        String query = buildQuery(baseQuery, tagIds.length);
-        Object[] params = prepareParameters(
-                toDbTimestamp(startDate),
-                toDbTimestamp(endDate),
-                appId,
-                regression,
-                tagIds
-        );
+        // Mock: heatmap tags
+        when(heatmapTagManagementService.getTagIdsByHeatmapId(heatmapId))
+                .thenReturn(List.of(100L, 200L));
 
-        return queryExecutor.executeQuery(query, testTagStatisticsMapper, params);
+        // Mock: Heatmap entity
+        Heatmap hm = mock(Heatmap.class);
+        User user = mock(User.class);
+        App app = mock(App.class);
+
+        when(hm.getId()).thenReturn(10L);
+        when(hm.getUser()).thenReturn(user);
+        when(user.getName()).thenReturn("TestUser");
+        when(hm.getName()).thenReturn("Sample Heatmap");
+        when(hm.getDescription()).thenReturn("desc");
+        when(hm.getDeleted()).thenReturn(false);
+        when(hm.getApp()).thenReturn(app);
+        when(app.getId()).thenReturn(50L);
+
+        when(heatmapManagementService.findEntityById(heatmapId)).thenReturn(hm);
+
+        // Mock: SQL builder + parameters
+        doReturn("SQL_QUERY").when(service).buildQuery(anyString(), anyInt());
+        doReturn(new Object[]{"param"}).when(service)
+                .prepareParameters(any(), any(), any(), anyBoolean(), any());
+
+        // Mock: status + period
+        doReturn(HeatmapStatus.OK).when(service).determineStatus(any(), any());
+        doReturn("Good").when(service).buildPeriodAnalysis(any(), any());
+
+        // Mock: DB results
+        TestTagStatisticsData row = mock(TestTagStatisticsData.class);
+        when(row.getClassName()).thenReturn("Clazz");
+        when(row.getTagName()).thenReturn("TagA");
+        when(row.getLatestRunTime()).thenReturn(LocalDateTime.now());
+        when(row.getPassedTests()).thenReturn(5);
+        when(row.getTotalTests()).thenReturn(6);
+        when(row.getPassRate()).thenReturn(80.0);
+
+        when(queryExecutor.executeQuery(anyString(), eq(mapper), any()))
+                .thenReturn(List.of(row));
+
+        // Run
+        HeatmapDetailsDTO dto =
+                service.getHeatmapById(heatmapId, start, end, false);
+
+        // Validate header
+        assertEquals(10L, dto.header().id());
+        assertEquals("TestUser", dto.header().createdBy());
+        assertEquals("Sample Heatmap", dto.header().name());
+
+        // Validate analysis section
+        assertEquals(1, dto.data().size());
+        HeatmapAnalysisDTO analysis = dto.data().get(0);
+
+        assertEquals("Clazz", analysis.className());
+        assertEquals("TagA", analysis.tagName());
+        assertEquals(5, analysis.passedTests());
+        assertEquals(80.0, analysis.passRate());
     }
 
-    /**
-     * Loads all data required to build a complete {@link HeatmapDetailsDTO} response.
-     * <p>This includes:</p>
-     * <ul>
-     *     <li>Heatmap metadata (name, description, user, tags)</li>
-     *     <li>Most recent per-class/tag statistics</li>
-     *     <li>Status and period analysis</li>
-     * </ul>
-     *
-     * @param id         Heatmap ID.
-     * @param startDate  Start of the reporting period.
-     * @param endDate    End of the reporting period.
-     * @param regression Whether to filter for regression results.
-     * @return Full Heatmap details including aggregated analysis.
-     * @throws HeatmapProcessingException If any processing error occurs.
-     */
-    public HeatmapDetailsDTO getHeatmapById(long id,
-                                            LocalDateTime startDate,
-                                            LocalDateTime endDate,
-                                            boolean regression) {
+    // --------------------------------------------------------------------------------------
+    // 2. getHeatmapById(): ensure custom exception is thrown when service fails
+    // --------------------------------------------------------------------------------------
+    @Test
+    void getHeatmapById_throwsHeatmapProcessingException() {
+        when(heatmapTagManagementService.getTagIdsByHeatmapId(anyLong()))
+                .thenThrow(new RuntimeException("DB fail"));
 
-        try {
-            List<Long> tagIds =
-                    heatmapTagManagementService.getTagIdsByHeatmapId(id);
-            Heatmap heatmap =
-                    heatmapManagementService.findEntityById(id);
-            Long appId = heatmap.getApp().getId();
-
-            List<TestTagStatisticsData> testTagData = getHeatmapAnalysisData(
-                    appId, startDate, endDate, tagIds.toArray(new Long[0]), regression
-            );
-
-            HeatmapResponseDTO header = buildHeaderDto(heatmap, tagIds);
-            List<HeatmapAnalysisDTO> analysis =
-                    buildHeatmapResponse(testTagData, startDate);
-
-            return new HeatmapDetailsDTO(header, analysis);
-
-        } catch (Exception e) {
-            log.error("Error generating weekly tag regression for heatmap {}: {}",
-                    id, e.getMessage(), e);
-            throw new HeatmapProcessingException(
-                    "Failed to generate heatmap data for id " + id, e);
-        }
-    }
-
-    /**
-     * Builds the header DTO containing metadata about the heatmap.
-     *
-     * @param heatmap Heatmap entity.
-     * @param tagIds  IDs of tags associated with this heatmap.
-     * @return Constructed {@link HeatmapResponseDTO}.
-     */
-    private HeatmapResponseDTO buildHeaderDto(Heatmap heatmap, List<Long> tagIds) {
-        String username = Optional.ofNullable(heatmap.getUser())
-                .map(User::getName)
-                .orElse("Unknown User");
-
-        return new HeatmapResponseDTO(
-                heatmap.getId(),
-                username,
-                heatmap.getName(),
-                heatmap.getDescription(),
-                heatmap.getDeleted(),
-                heatmap.getApp().getId(),
-                tagIds
+        assertThrows(
+                HeatmapDataService.HeatmapProcessingException.class,
+                () -> service.getHeatmapById(99L, LocalDateTime.now(), LocalDateTime.now(), false)
         );
     }
 
-    /**
-     * Aggregates the raw data into a list of analysis DTOs by selecting the most recent
-     * run per (className, tagName) pair and calculating status + period analysis.
-     *
-     * @param data          Raw statistics query results.
-     * @param userStartDate Start of the user's reporting period.
-     * @return Aggregated response ready for UI consumption.
-     */
-    private List<HeatmapAnalysisDTO> buildHeatmapResponse(List<TestTagStatisticsData> data,
-                                                          LocalDateTime userStartDate) {
+    // --------------------------------------------------------------------------------------
+    // 3. getHeatmapAnalysisData(): ensure correct query + params passed to the DB executor
+    // --------------------------------------------------------------------------------------
+    @Test
+    void getHeatmapAnalysisData_executesSqlCorrectly() {
 
-        if (data == null || data.isEmpty()) {
-            return Collections.emptyList();
-        }
+        doReturn("FINAL_SQL").when(service).buildQuery(anyString(), anyInt());
+        doReturn(new Object[]{"A"}).when(service)
+                .prepareParameters(any(), any(), any(), anyBoolean(), any());
 
-        // Select most recent entry per class/tag key
-        Collection<TestTagStatisticsData> mostRecentPerCell =
-                data.stream()
-                        .collect(Collectors.collectingAndThen(
-                                Collectors.groupingBy(
-                                        row -> row.getClassName() + "|" + row.getTagName(),
-                                        Collectors.maxBy(Comparator.comparing(
-                                                TestTagStatisticsData::getLatestRunTime))
-                                ),
-                                map -> map.values()
-                                        .stream()
-                                        .flatMap(Optional::stream)
-                                        .toList()
-                        ));
+        when(queryExecutor.executeQuery(any(), eq(mapper), any()))
+                .thenReturn(Collections.emptyList());
 
-        return mostRecentPerCell.stream()
-                .map(row -> toAnalysisDto(row, userStartDate))
-                .toList();
-    }
+        service.getHeatmapAnalysisData(
+                5L, LocalDateTime.now(), LocalDateTime.now(), new Long[]{1L, 2L}, false);
 
-    /**
-     * Converts a raw statistics row into a UI-ready {@link HeatmapAnalysisDTO}.
-     *
-     * @param row            Raw data row.
-     * @param userStartDate  Reporting period start date.
-     * @return Populated analysis DTO.
-     */
-    private HeatmapAnalysisDTO toAnalysisDto(TestTagStatisticsData row,
-                                             LocalDateTime userStartDate) {
-
-        LocalDateTime lastRun = row.getLatestRunTime();
-        HeatmapStatus status = determineStatus(lastRun, userStartDate);
-        String lastRunStr = lastRun != null
-                ? lastRun.toLocalDate().format(DATE_FMT)
-                : "N/A";
-
-        String periodAnalysis = buildPeriodAnalysis(lastRun, userStartDate);
-
-        return new HeatmapAnalysisDTO(
-                row.getClassName(),
-                row.getTagName(),
-                row.getPassedTests(),
-                row.getPassRate(),
-                row.getTotalTests(),
-                status,
-                lastRunStr,
-                periodAnalysis
+        verify(queryExecutor).executeQuery(
+                queryCaptor.capture(),
+                eq(mapper),
+                paramsCaptor.capture()
         );
+
+        assertEquals("FINAL_SQL", queryCaptor.getValue());
+        assertArrayEquals(new Object[]{"A"}, paramsCaptor.getValue());
     }
 
-    // ----------------------------------------------------------------------------------
-    // Helper methods — JavaDoc included so the behaviour is clear
-    // ----------------------------------------------------------------------------------
+    // --------------------------------------------------------------------------------------
+    // 4. Most-recent-per-cell grouping logic
+    // --------------------------------------------------------------------------------------
+    @Test
+    void buildHeatmapResponse_keepsMostRecentEntryOnly() throws Exception {
 
-    /**
-     * Builds a final SQL query based on the number of tag IDs.
-     * Typically used to expand an IN-clause placeholder list.
-     *
-     * @param baseQuery Base SQL template.
-     * @param tagCount  Number of tag IDs.
-     * @return SQL string ready for parameter binding.
-     */
-    private String buildQuery(String baseQuery, int tagCount) {
-        throw new UnsupportedOperationException("Implement buildQuery()");
-    }
+        // Create rows
+        TestTagStatisticsData older = mock(TestTagStatisticsData.class);
+        TestTagStatisticsData newer = mock(TestTagStatisticsData.class);
 
-    /**
-     * Prepares positional parameters for the heatmap SQL query.
-     *
-     * @param startTs Start timestamp.
-     * @param endTs   End timestamp.
-     * @param appId   Application ID.
-     * @param regression Regression flag.
-     * @param tagIds Tag IDs for filtering.
-     * @return Array of parameters in correct order.
-     */
-    private Object[] prepareParameters(Object startTs,
-                                       Object endTs,
-                                       Long appId,
-                                       boolean regression,
-                                       Long[] tagIds) {
-        throw new UnsupportedOperationException("Implement prepareParameters()");
-    }
+        when(older.getClassName()).thenReturn("ClassA");
+        when(older.getTagName()).thenReturn("Tag1");
+        when(older.getLatestRunTime()).thenReturn(LocalDateTime.now().minusDays(1));
+        when(older.getPassedTests()).thenReturn(1);
+        when(older.getTotalTests()).thenReturn(2);
+        when(older.getPassRate()).thenReturn(50.0);
 
-    /**
-     * Converts a LocalDateTime to a DB-friendly timestamp object (e.g. java.sql.Timestamp).
-     *
-     * @param time Local date-time.
-     * @return Database timestamp.
-     */
-    private Object toDbTimestamp(LocalDateTime time) {
-        throw new UnsupportedOperationException("Implement toDbTimestamp()");
-    }
+        when(newer.getClassName()).thenReturn("ClassA");
+        when(newer.getTagName()).thenReturn("Tag1");
+        when(newer.getLatestRunTime()).thenReturn(LocalDateTime.now());
+        when(newer.getPassedTests()).thenReturn(5);
+        when(newer.getTotalTests()).thenReturn(6);
+        when(newer.getPassRate()).thenReturn(80.0);
 
-    /**
-     * Determines the heatmap status (OK, WARNING, FAIL, etc.).
-     *
-     * @param lastRun       Most recent run date.
-     * @param userStartDate Reporting baseline start date.
-     * @return Computed status.
-     */
-    private HeatmapStatus determineStatus(LocalDateTime lastRun,
-                                          LocalDateTime userStartDate) {
-        throw new UnsupportedOperationException("Implement determineStatus()");
-    }
+        // Stub helpers
+        doReturn(HeatmapStatus.OK).when(service).determineStatus(any(), any());
+        doReturn("period").when(service).buildPeriodAnalysis(any(), any());
 
-    /**
-     * Builds a textual period analysis, e.g. “5 days since last run”.
-     *
-     * @param lastRun       Last execution date.
-     * @param userStartDate Reporting baseline start date.
-     * @return Human-readable analysis string.
-     */
-    private String buildPeriodAnalysis(LocalDateTime lastRun,
-                                       LocalDateTime userStartDate) {
-        throw new UnsupportedOperationException("Implement buildPeriodAnalysis()");
-    }
+        // Call private-like method via spy (reflection not needed)
+        List<HeatmapAnalysisDTO> results =
+                service.buildHeatmapResponse(
+                        List.of(older, newer),
+                        LocalDateTime.now().minusDays(10)
+                );
 
-    // ----------------------------------------------------------------------------------
-
-    /**
-     * Thrown when a heatmap cannot be processed due to unexpected errors.
-     */
-    public static class HeatmapProcessingException extends RuntimeException {
-        public HeatmapProcessingException(String message, Throwable cause) {
-            super(message, cause);
-        }
+        assertEquals(1, results.size());
+        assertEquals(80.0, results.get(0).passRate());  // only "newer" survives
     }
 }
 
