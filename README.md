@@ -1,32 +1,35 @@
 ```java
-    @Transactional
-    default void bulkInsert(
-            Long heatmapId,
-            Collection<Long> tagIds,
-            EntityManager em
-    ) {
-        if (tagIds == null || tagIds.isEmpty()) return;
+@Component
+public class ProcessingGuard {
 
-        String selectBlocks = tagIds.stream()
-                .map(tagId -> "SELECT heatmap_tags_seq.nextval, "
-                        + heatmapId + ", "
-                        + tagId + ", "
-                        + "SYSDATE FROM dual")
-                .collect(Collectors.joining(" UNION ALL "));
+    @Value("${processor.hostname-guard-enabled:false}")
+    private boolean guardEnabled;
 
-        String sql = "INSERT INTO heatmap_tags (id, heatmap_id, tag_id, created) "
-                   + selectBlocks;
+    @Value("${processor.allowed-hosts:}")
+    private List<String> allowedHosts;
 
-        em.createNativeQuery(sql).executeUpdate();
+    private String hostname;
+
+    @PostConstruct
+    public void init() throws Exception {
+        this.hostname = InetAddress.getLocalHost().getHostName();
     }
 
-    @PersistenceContext
-    private EntityManager entityManager;
+    public boolean allowProcessing() {
 
-    @Transactional
-    public void createMultipleHeatmapTags(Long heatmapId, Collection<Long> tagIds) {
-        heatmapTagRepository.bulkInsert(heatmapId, tagIds, entityManager);
+        // Guard is OFF → always allow processing
+        if (!guardEnabled) {
+            return true;
+        }
+
+        // Guard is ON → only allow if hostname is in list
+        return allowedHosts.contains(hostname);
     }
+
+    public String getHostname() {
+        return hostname;
+    }
+}
 
 
 ```
