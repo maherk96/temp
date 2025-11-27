@@ -1,33 +1,52 @@
 ```java
-@Component
-public class ProcessingGuard {
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
-    @Value("${processor.hostname-guard-enabled:false}")
-    private boolean guardEnabled;
+import java.util.List;
 
-    @Value("${processor.allowed-hosts:}")
-    private List<String> allowedHosts;
+import static org.junit.jupiter.api.Assertions.*;
 
-    private String hostname;
+class ProcessingGuardTest {
 
-    @PostConstruct
-    public void init() throws Exception {
-        this.hostname = InetAddress.getLocalHost().getHostName();
+    private ProcessingGuard guard;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        guard = new ProcessingGuard();
+        ReflectionTestUtils.setField(guard, "hostname", "my-host");
     }
 
-    public boolean allowProcessing() {
+    @Test
+    void whenGuardDisabled_thenAlwaysAllowProcessing() {
+        ReflectionTestUtils.setField(guard, "guardEnabled", false);
+        ReflectionTestUtils.setField(guard, "allowedHosts", List.of());
 
-        // Guard is OFF → always allow processing
-        if (!guardEnabled) {
-            return true;
-        }
-
-        // Guard is ON → only allow if hostname is in list
-        return allowedHosts.contains(hostname);
+        assertTrue(guard.allowProcessing());
     }
 
-    public String getHostname() {
-        return hostname;
+    @Test
+    void whenGuardEnabled_andHostnameMatches_thenAllowProcessing() {
+        ReflectionTestUtils.setField(guard, "guardEnabled", true);
+        ReflectionTestUtils.setField(guard, "allowedHosts", List.of("my-host"));
+
+        assertTrue(guard.allowProcessing());
+    }
+
+    @Test
+    void whenGuardEnabled_andHostnameDoesNotMatch_thenBlockProcessing() {
+        ReflectionTestUtils.setField(guard, "guardEnabled", true);
+        ReflectionTestUtils.setField(guard, "allowedHosts", List.of("uat-server-01"));
+
+        assertFalse(guard.allowProcessing());
+    }
+
+    @Test
+    void whenGuardEnabled_andAllowedHostsEmpty_thenBlockProcessing() {
+        ReflectionTestUtils.setField(guard, "guardEnabled", true);
+        ReflectionTestUtils.setField(guard, "allowedHosts", List.of());
+
+        assertFalse(guard.allowProcessing());
     }
 }
 
