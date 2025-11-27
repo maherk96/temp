@@ -1,24 +1,15 @@
 ```java
 
-    @Transactional
-    public void createMultipleHeatmapTagsBulk(Long heatmapId, Collection<Long> tagIds,
-                                              javax.persistence.EntityManager em) {
-        if (tagIds == null || tagIds.isEmpty()) return;
+@Transactional
+default void bulkInsert(Long heatmapId, Collection<Long> tagIds, EntityManager em) {
+    if (tagIds == null || tagIds.isEmpty()) return;
 
-        heatmapTagRepository.bulkInsert(heatmapId, tagIds, em);
-    }
+    String selectStatements = tagIds.stream()
+            .map(tagId -> "SELECT " + heatmapId + ", " + tagId + " FROM dual")
+            .collect(Collectors.joining(" UNION ALL "));
 
-    @Transactional
-    default void bulkInsert(Long heatmapId, Collection<Long> tagIds, javax.persistence.EntityManager em) {
-        if (tagIds == null || tagIds.isEmpty()) return;
+    String sql = "INSERT INTO heatmap_tags (heatmap_id, tag_id) " + selectStatements;
 
-        String values = tagIds.stream()
-                .map(tagId -> "(" + heatmapId + ", " + tagId + ")")
-                .reduce((a, b) -> a + ", " + b)
-                .orElse("");
-
-        String sql = "INSERT INTO heatmap_tags (heatmap_id, tag_id) VALUES " + values;
-
-        em.createNativeQuery(sql).executeUpdate();
-    }
+    em.createNativeQuery(sql).executeUpdate();
+}
 ```
