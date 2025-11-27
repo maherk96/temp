@@ -1,14 +1,26 @@
 ```java
-@Transactional
-default void bulkInsert(Long heatmapId, Collection<Long> tagIds, EntityManager em) {
-    if (tagIds == null || tagIds.isEmpty()) return;
+    @Modifying
+    @Transactional
+    @Query(
+        value = """
+            INSERT INTO heatmap_tags (heatmap_id, tag_id)
+            VALUES (:heatmapId, :tagId)
+            """,
+        nativeQuery = true
+    )
+    void insertSingle(
+            @Param("heatmapId") Long heatmapId,
+            @Param("tagId") Long tagId
+    );
 
-    String selectStatements = tagIds.stream()
-            .map(tagId -> "SELECT HEATMAP_TAGS_SEQ.NEXTVAL, " + heatmapId + ", " + tagId + " FROM dual")
-            .collect(Collectors.joining(" UNION ALL "));
+    @Transactional
+    public void createMultipleHeatmapTags(Long heatmapId, Collection<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return;
+        }
 
-    String sql = "INSERT INTO heatmap_tags (id, heatmap_id, tag_id) " + selectStatements;
-
-    em.createNativeQuery(sql).executeUpdate();
-}
+        tagIds.forEach(tagId ->
+                heatmapTagRepository.insertSingle(heatmapId, tagId)
+        );
+    }
 ```
