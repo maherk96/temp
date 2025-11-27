@@ -1,11 +1,15 @@
 ```java
-
+@Modifying
 @Transactional
-public void createMultipleHeatmapTags(Long heatmapId, Collection<Long> tagIds) {
-    if (tagIds == null || tagIds.isEmpty()) return;
+default void bulkInsert(Long heatmapId, Collection<Long> tagIds) {
+    if (tagIds.isEmpty()) return;
 
-    tagIds.forEach(tagId ->
-        heatmapTagRepository.insertSingle(heatmapId, tagId)
-    );
+    String values = tagIds.stream()
+            .map(tagId -> "(" + heatmapId + ", " + tagId + ")")
+            .collect(Collectors.joining(", "));
+
+    entityManager.createNativeQuery(
+            "INSERT INTO heatmap_tags (heatmap_id, tag_id) VALUES " + values
+    ).executeUpdate();
 }
 ```
