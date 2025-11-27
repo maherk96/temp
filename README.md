@@ -1,14 +1,13 @@
 ```java
-
 @Transactional
 default void bulkInsert(Long heatmapId, Collection<Long> tagIds, EntityManager em) {
     if (tagIds == null || tagIds.isEmpty()) return;
 
     String selectStatements = tagIds.stream()
-            .map(tagId -> "SELECT " + heatmapId + ", " + tagId + " FROM dual")
+            .map(tagId -> "SELECT HEATMAP_TAGS_SEQ.NEXTVAL, " + heatmapId + ", " + tagId + " FROM dual")
             .collect(Collectors.joining(" UNION ALL "));
 
-    String sql = "INSERT INTO heatmap_tags (heatmap_id, tag_id) " + selectStatements;
+    String sql = "INSERT INTO heatmap_tags (id, heatmap_id, tag_id) " + selectStatements;
 
     em.createNativeQuery(sql).executeUpdate();
 }
