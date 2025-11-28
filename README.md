@@ -1,122 +1,61 @@
 ```java
-@Slf4j
-@Service
-public class HeatmapCacheService {
+@Test
+@DisplayName("Test Coverage Metrics Data with correct weekly windowing")
+void testCoverageMetricsDataWithWeeklyWindows() {
 
-    private final Cache<AnalysisCacheKey, List<TestTagStatisticsData>> analysisCache =
-            Caffeine.newBuilder()
-                    .expireAfterWrite(Duration.ofDays(1))
-                    .maximumSize(10_000)
-                    .build();
+    // Align everything to week boundaries
+    LocalDateTime now = LocalDateTime.now();
+    LocalDate weekStart = now.toLocalDate()
+                             .with(java.time.DayOfWeek.MONDAY);
+    
+    LocalDateTime p0Start = weekStart.atStartOfDay();       // This week
+    LocalDateTime p0End   = p0Start.plusWeeks(1);
 
-    private final Cache<CellDataCacheKey, List<HeatmapCellData>> cellDataCache =
-            Caffeine.newBuilder()
-                    .expireAfterWrite(Duration.ofDays(1))
-                    .maximumSize(5_000)
-                    .build();
+    LocalDateTime p1Start = p0Start.minusWeeks(1);          // Last week
+    LocalDateTime p1End   = p0Start;
 
-    // ---------- Generic invalidation helper ----------
-    private <K, V> void invalidate(Cache<K, V> cache, Predicate<K> filter) {
-        cache.asMap().keySet().removeIf(filter);
-    }
+    LocalDateTime p2Start = p0Start.minusWeeks(2);          // 2 weeks ago
+    LocalDateTime p2End   = p1Start;
 
-    // ---------- Public API ----------
+    LocalDateTime p3Start = p0Start.minusWeeks(3);          // 3 weeks ago
+    LocalDateTime p3End   = p2Start;
 
-    public List<TestTagStatisticsData> getAnalysisData(
-            Long appId,
-            LocalDateTime start,
-            LocalDateTime end,
-            Long[] tagIds,
-            boolean regression,
-            Supplier<List<TestTagStatisticsData>> dataLoader) {
+    List<TestTagStatisticsData> rawData = new ArrayList<>();
 
-        AnalysisCacheKey key = buildAnalysisCacheKey(appId, start, end, tagIds, regression);
+    // Period 0: This week (fresh)
+    rawData.add(new TestTagStatisticsData(
+            "OrderStates", "COMMON", 0,
+            p0Start, p0End,
+            20, 19, 3,
+            p0Start.plusDays(1)
+    ));
 
-        return analysisCache.get(key, k -> {
-            long t = System.currentTimeMillis();
-            var data = dataLoader.get();
-            log.debug("Loaded analysis data for key={} in {}ms", k, System.currentTimeMillis() - t);
-            return data;
-        });
-    }
+    // Period 1: Last week
+    rawData.add(new TestTagStatisticsData(
+            "OrderStates", "COMMON", 1,
+            p1Start, p1End,
+            20, 15, 3,
+            p1Start.plusDays(2)
+    ));
 
-    public List<HeatmapCellData> getCellData(
-            LocalDateTime start,
-            LocalDateTime end,
-            String className,
-            String tagName,
-            String appName,
-            Supplier<List<HeatmapCellData>> dataLoader) {
+    // Period 2: Two weeks ago
+    rawData.add(new TestTagStatisticsData(
+            "OrderStates", "COMMON", 2,
+            p2Start, p2End,
+            20, 14, 3,
+            p2Start.plusDays(3)
+    ));
 
-        CellDataCacheKey key = buildCellDataCacheKey(start, end, className, tagName, appName);
+    // Period 3: Three weeks ago
+    rawData.add(new TestTagStatisticsData(
+            "OrderStates", "COMMON", 3,
+            p3Start, p3End,
+            20, 6, 3,
+            p3Start.plusDays(4)
+    ));
 
-        return cellDataCache.get(key, k -> {
-            long t = System.currentTimeMillis();
-            var data = dataLoader.get();
-            log.debug("Loaded cell data for key={} in {}ms", k, System.currentTimeMillis() - t);
-            return data;
-        });
-    }
-
-    public void invalidateCacheForApp(Long appId) {
-        invalidate(analysisCache, key -> key.appId().equals(appId));
-        log.info("Invalidated analysis cache for appId={}", appId);
-    }
-
-    public void invalidateCellDataCacheForApp(String appName) {
-        invalidate(cellDataCache, key -> Objects.equals(key.appName(), appName));
-        log.info("Invalidated cell data cache for appName={}", appName);
-    }
-
-    public void invalidateAllCachesForApp(Long appId, String appName) {
-        invalidateCacheForApp(appId);
-        invalidateCellDataCacheForApp(appName);
-        log.info("Invalidated all caches for appId={}, appName={}", appId, appName);
-    }
-
-    public void invalidateCellDataCacheForClassAndTag(String className, String tagName, String appName) {
-        invalidate(cellDataCache, key ->
-                (className == null || Objects.equals(key.className(), className)) &&
-                (tagName == null || Objects.equals(key.tagName(), tagName)) &&
-                (appName == null || Objects.equals(key.appName(), appName))
-        );
-
-        log.info("Invalidated cell data for className={}, tagName={}, appName={}",
-                className, tagName, appName);
-    }
-
-    public void clearAllCaches() {
-        analysisCache.invalidateAll();
-        cellDataCache.invalidateAll();
-        log.info("Cleared all heatmap caches");
-    }
-
-    // ---------- Key builders ----------
-
-    private AnalysisCacheKey buildAnalysisCacheKey(
-            Long appId,
-            LocalDateTime start,
-            LocalDateTime end,
-            Long[] tagIds,
-            boolean regression) {
-
-        List<Long> sortedTags = tagIds == null
-                ? List.of()
-                : Arrays.stream(tagIds).sorted().toList();
-
-        return new AnalysisCacheKey(appId, start, end, sortedTags, regression);
-    }
-
-    private CellDataCacheKey buildCellDataCacheKey(
-            LocalDateTime start,
-            LocalDateTime end,
-            String className,
-            String tagName,
-            String appName) {
-
-        return new CellDataCacheKey(start, end, className, tagName, appName);
-    }
+    // Execute
+    heatmapDataService.buildHeapmapResponse(rawData, now);
 }
-
 
 ```
