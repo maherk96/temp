@@ -71,6 +71,37 @@ WHERE ac.constraint_type = 'R'
   AND ac_r.table_name = 'TEST'
 ORDER BY ac.table_name, ac.constraint_name;
 
+-- 1. Identify duplicate test IDs (excluding the oldest)
+WITH dup AS (
+    SELECT id,
+           ROW_NUMBER() OVER (
+               PARTITION BY method_name, display_name, test_class_id
+               ORDER BY created ASC
+           ) AS rn
+    FROM test
+),
+to_delete AS (
+    SELECT id
+    FROM dup
+    WHERE rn > 1
+)
+
+-- 2. Delete child rows in correct order
+DELETE FROM test_param
+WHERE test_id IN (SELECT id FROM to_delete);
+
+DELETE FROM test_run
+WHERE test_id IN (SELECT id FROM to_delete);
+
+DELETE FROM test_step
+WHERE test_id IN (SELECT id FROM to_delete);
+
+DELETE FROM test_tag
+WHERE test_id IN (SELECT id FROM to_delete);
+
+-- 3. Delete duplicate test rows
+DELETE FROM test
+WHERE id IN (SELECT id FROM to_delete);
 
 
 ```
