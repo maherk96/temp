@@ -54,5 +54,23 @@ WHERE id IN (
     WHERE d.rn > 1
 );
 
+SELECT 
+    ac.constraint_name,
+    ac.table_name AS child_table,
+    acc.column_name AS child_column,
+    ac_r.table_name AS parent_table,
+    acc_r.column_name AS parent_column
+FROM all_constraints ac
+JOIN all_cons_columns acc 
+    ON ac.constraint_name = acc.constraint_name
+JOIN all_constraints ac_r 
+    ON ac.r_constraint_name = ac_r.constraint_name
+JOIN all_cons_columns acc_r
+    ON ac_r.constraint_name = acc_r.constraint_name
+WHERE ac.constraint_type = 'R'
+  AND ac_r.table_name = 'TEST'
+ORDER BY ac.table_name, ac.constraint_name;
+
+
 
 ```
