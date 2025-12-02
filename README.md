@@ -28,5 +28,31 @@ FROM test
 GROUP BY method_name, display_name, test_class_id
 HAVING COUNT(*) > 1;
 
+SELECT *
+FROM (
+    SELECT t.*,
+           ROW_NUMBER() OVER (
+               PARTITION BY method_name, display_name, test_class_id
+               ORDER BY created ASC
+           ) AS rn
+    FROM test t
+) x
+WHERE x.rn > 1
+ORDER BY x.method_name, x.display_name, x.test_class_id, x.created;
+
+
+DELETE FROM test
+WHERE id IN (
+    SELECT id FROM (
+        SELECT t.id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY method_name, display_name, test_class_id
+                   ORDER BY created ASC
+               ) AS rn
+        FROM test t
+    ) d
+    WHERE d.rn > 1
+);
+
 
 ```
