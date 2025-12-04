@@ -1,140 +1,172 @@
 ```java
+@Slf4j
+@Service
+public class DashboardDataService {
 
-/**
- * Configuration object for the {@link WidgetDatasetType#MOST_TEST_CASES_FAILED}
- * dataset. This config determines which application, how many days to look back,
- * and whether regression test cases should be included when generating the widget
- * dataset.
- * <p>
- * This class is deserialized polymorphically using the widget {@code type} field
- * via Jackson annotations defined on {@link WidgetConfig}.
- * </p>
- */
-@EqualsAndHashCode(callSuper = true)
-@Data
-@JsonTypeName("MOST_TEST_CASES_FAILED")
-@JsonIgnoreProperties(ignoreUnknown = true)
-public final class MostFailedTestCaseConfig extends WidgetConfig {
+    private static final String DASHBOARD_QUERY_KEY = "DashboardDatasetQuery";
 
-    /**
-     * Name of the application to filter test cases for.
-     * <p>
-     * This value is optional in the database, and defaults to {@code "Fusion Algo"}.
-     * </p>
-     */
-    @ConfigField(
-            displayName = "Application Name",
-            description = "Name of the application to filter test cases",
-            defaultValue = "Fusion Algo"
-    )
-    private String appName;
+    private final DatabaseQueryExecutor queryExecutor;
+    private final Map<String, String> qapQueries;
+    private final WidgetDatasetServiceFactory widgetServiceFactory;
 
-    /**
-     * Number of days to look back when evaluating failed test cases.
-     * <p>
-     * Must be greater than zero. Defaults to {@code 14}.
-     * </p>
-     */
-    @ConfigField(
-            displayName = "Number of Days",
-            description = "Number of days to look back for failed test cases",
-            defaultValue = "14"
-    )
-    private int numberOfDays;
+    @Autowired
+    public DashboardDataService(
+            DatabaseQueryExecutor queryExecutor,
+            Map<String, String> qapQueries,
+            WidgetDatasetServiceFactory widgetServiceFactory) {
 
-    /**
-     * Whether regression test cases should be included in the results.
-     * <p>
-     * Defaults to {@code true}.
-     * </p>
-     */
-    @ConfigField(
-            displayName = "Include Regression",
-            description = "Include regression test cases in the results",
-            defaultValue = "true"
-    )
-    private boolean includeRegression;
-
-    /**
-     * Creates the default configuration for this widget type.
-     * <p>
-     * Used as a fallback for any missing or invalid values in the database-configured version.
-     * </p>
-     *
-     * @return a fully populated {@link MostFailedTestCaseConfig} instance with default values
-     */
-    public static MostFailedTestCaseConfig defaultConfig() {
-        MostFailedTestCaseConfig config = new MostFailedTestCaseConfig();
-        config.setAppName("Fusion Algo");
-        config.setNumberOfDays(14);
-        config.setIncludeRegression(true);
-        return config;
+        this.queryExecutor = queryExecutor;
+        this.qapQueries = qapQueries;
+        this.widgetServiceFactory = widgetServiceFactory;
     }
 
     /**
-     * Returns the widget dataset type associated with this config.
+     * Retrieves all widget data belonging to a dashboard.
      *
-     * @return {@link WidgetDatasetType#MOST_TEST_CASES_FAILED}
+     * @param dashboardId the ID of the dashboard
+     * @return populated {@link DashboardDatasetResponse}
      */
-    @Override
-    public WidgetDatasetType getType() {
-        return WidgetDatasetType.MOST_TEST_CASES_FAILED;
+    public DashboardDatasetResponse getDashboardData(long dashboardId) {
+        log.debug("Retrieving dashboard data for dashboardId: {}", dashboardId);
+
+        List<DashboardWidgetData> rows =
+                queryExecutor.executeQuery(
+                        qapQueries.get(DASHBOARD_QUERY_KEY),
+                        new DashboardWidgetDataMapper(),
+                        dashboardId);
+
+        if (rows.isEmpty()) {
+            log.warn("Dashboard not found: {}", dashboardId);
+            throw new DashboardNotFoundException("Dashboard not found: " + dashboardId);
+        }
+
+        DashboardWidgetData firstRow = rows.get(0);
+        DashboardDatasetResponse response =
+                buildDashboardResponse(dashboardId, firstRow);
+
+        List<WidgetResponse> widgets =
+                rows.stream()
+                    .map(this::mapToWidgetResponse)
+                    .toList();
+
+        response.setWidgetResponseList(widgets);
+
+        log.info(
+                "Successfully retrieved dashboard data for dashboardId: {} with {} widgets",
+                dashboardId,
+                widgets.size());
+
+        return response;
     }
 
     /**
-     * Converts this configuration into a simple map of field names to values.
-     * <p>
-     * This allows the dashboard service to introspect config values <b>without using reflection</b>
-     * when producing {@link FieldMetadata}.
-     * </p>
-     *
-     * @return a map containing {@code appName}, {@code numberOfDays}, and {@code includeRegression}
+     * Builds the top-level dashboard metadata (name, description, etc).
      */
-    @Override
-    public Map<String, Object> toValueMap() {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("appName", appName);
-        map.put("numberOfDays", numberOfDays);
-        map.put("includeRegression", includeRegression);
-        return map;
+    private DashboardDatasetResponse buildDashboardResponse(
+            long dashboardId, DashboardWidgetData data) {
+
+        return DashboardDatasetResponse.builder()
+                .id(dashboardId)
+                .name(data.getDashboardName())
+                .description(data.getDashboardDescription())
+                .build();
     }
 
     /**
-     * Merges the current configuration with the provided default configuration.
-     * <p>
-     * Rules for merging:
-     * <ul>
-     *     <li><b>Strings:</b> non-null and non-blank values override defaults</li>
-     *     <li><b>Integers:</b> must be &gt; 0 to override defaults</li>
-     *     <li><b>Booleans:</b> always taken as-is, since all boolean values are valid</li>
-     * </ul>
-     * </p>
+     * Converts one widget DB row into a fully populated {@link WidgetResponse}.
      *
-     * @param defaults the default config to fall back to
-     * @return a new {@link MostFailedTestCaseConfig} instance after merging
+     * @param data row retrieved from the database
+     * @return built widget response with metadata + dataset values
      */
-    @Override
-    public WidgetConfig mergeWith(WidgetConfig defaults) {
-        MostFailedTestCaseConfig d = (MostFailedTestCaseConfig) defaults;
-        MostFailedTestCaseConfig merged = new MostFailedTestCaseConfig();
+    private WidgetResponse mapToWidgetResponse(DashboardWidgetData data) {
+        log.debug("Mapping widget: {} (ID: {}), configId: {}",
+                data.getWidgetName(),
+                data.getDashboardWidgetConfigId(),
+                data.getWidgetConfigId());
 
-        merged.setAppName(
-                this.appName != null && !this.appName.isBlank()
-                        ? this.appName
-                        : d.appName
-        );
+        try {
+            WidgetConfig widgetConfig = parseAndMergeConfig(data.getWidgetConfiguration());
+            WidgetDatasetType type = widgetConfig.getType();
 
-        merged.setNumberOfDays(
-                this.numberOfDays > 0
-                        ? this.numberOfDays
-                        : d.numberOfDays
-        );
+            WidgetDatasetService<?> service = widgetServiceFactory.getService(type);
+            List<?> dataset = service.getDataset(widgetConfig);
 
-        merged.setIncludeRegression(this.includeRegression);
+            return buildWidgetResponse(data, type, widgetConfig, dataset);
 
-        return merged;
+        } catch (JsonProcessingException e) {
+            log.error("Failed to parse widget configuration for widget: {}", data.getWidgetName(), e);
+            throw new WidgetConfigurationException(
+                    "Failed to parse widget configuration for widget: " + data.getWidgetName(), e);
+
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid widget type for widget: {}", data.getWidgetName(), e);
+            throw new WidgetConfigurationException(
+                    "Invalid widget type for widget: " + data.getWidgetName(), e);
+        }
+    }
+
+    /**
+     * Parses raw JSON config and merges missing values with the widget type's default config.
+     */
+    private WidgetConfig parseAndMergeConfig(String json) throws JsonProcessingException {
+        WidgetConfig parsed = JsoUnitil.getObjectMapper().readValue(json, WidgetConfig.class);
+        WidgetConfig defaults = parsed.getType().getDefaultConfig();
+        return parsed.mergeWith(defaults);
+    }
+
+    /**
+     * Builds the final unified WidgetResponse object.
+     */
+    private WidgetResponse buildWidgetResponse(
+            DashboardWidgetData data,
+            WidgetDatasetType datasetType,
+            WidgetConfig widgetConfig,
+            List<?> dataset) {
+
+        log.debug("Built widget response for widget: {} with {} data points",
+                data.getWidgetName(),
+                dataset.size());
+
+        Map<String, FieldMetadata> metadata =
+                createConfigMetadataWithValues(datasetType, widgetConfig);
+
+        return WidgetResponse.builder()
+                .widgetId(data.getDashboardWidgetConfigId())
+                .ordinal(data.getOrdinal())
+                .name(data.getWidgetName())
+                .widgetDataSetType(datasetType)
+                .graphType(data.getGraphType())
+                .description(data.getWidgetDescription())
+                .widgetConfig(metadata)
+                .dataSets(new ArrayList<>(dataset))
+                .build();
+    }
+
+    /**
+     * Produces a map of field metadata for each config property,
+     * enriched with the actual config values from {@link WidgetConfig#toValueMap()}.
+     */
+    private Map<String, FieldMetadata> createConfigMetadataWithValues(
+            WidgetDatasetType datasetType,
+            WidgetConfig config) {
+
+        Map<String, FieldMetadata> baseMeta = datasetType.getFieldMetadata();
+        Map<String, Object> values = config.toValueMap();
+
+        Map<String, FieldMetadata> result = new LinkedHashMap<>();
+
+        baseMeta.forEach((fieldName, meta) -> {
+            Object value = values.get(fieldName);
+
+            result.put(fieldName, new FieldMetadata(
+                    meta.getDisplayName(),
+                    meta.getDataType(),
+                    meta.getDescription(),
+                    value
+            ));
+        });
+
+        return result;
     }
 }
-
-
 ```
