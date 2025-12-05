@@ -1,40 +1,36 @@
 ```java
 
-public DashboardDatasetResponse getDashboardData(long dashboardId) {
-    log.debug("Retrieving dashboard data for dashboardId: {}", dashboardId);
+@Override
+public WidgetConfig mergeWith(WidgetConfig defaults) {
+    var d = (MostFailedTestCaseConfig) defaults;
+    var merged = new MostFailedTestCaseConfig();
 
-    List<DashboardWidgetData> rows;
-    try {
-        rows = queryExecutor.executeQuery(
-                qapQueries.get(DASHBOARD_QUERY_KEY),
-                new DashboardWidgetDataMapper(),
-                dashboardId);
-    } catch (DataAccessException e) {
-        // Any problem talking to the DB / executing the query
-        log.error("Database error while retrieving dashboard {}: {}", dashboardId, e.getMessage(), e);
-        // Either rethrow DataAccessException or wrap it in your own service-level exception
-        throw new DashboardDataAccessException(
-                "Failed to retrieve dashboard data for id " + dashboardId, e);
+    // appName: prefer current if non-blank, otherwise default
+    merged.setAppName(this.appName != null && !this.appName.isBlank()
+            ? this.appName
+            : d.appName);
+
+    // numberOfDays: prefer current if > 0, else default's,
+    // and if still invalid use a hardcoded safe default (e.g. 14)
+    int mergedDays = (this.numberOfDays > 0)
+            ? this.numberOfDays
+            : d.numberOfDays;
+
+    if (mergedDays <= 0) {
+        mergedDays = 14; // fallback to reasonable default
     }
+    merged.setNumberOfDays(mergedDays);
 
-    if (rows == null || rows.isEmpty()) {
-        log.warn("Dashboard not found: {}", dashboardId);
-        throw new DashboardNotFoundException("Dashboard not found: " + dashboardId);
+    // includeRegression: keep current flag (or change if you prefer default)
+    merged.setIncludeRegression(this.includeRegression);
+
+    return merged;
+}
+
+public void setNumberOfDays(int numberOfDays) {
+    if (numberOfDays <= 0) {
+        throw new IllegalArgumentException("numberOfDays must be positive");
     }
-
-    DashboardWidgetData firstRow = rows.get(0);
-    DashboardDatasetResponse response = buildDashboardResponse(dashboardId, firstRow);
-
-    List<WidgetResponse> widgets = rows.stream()
-            .map(this::mapToWidgetResponse)
-            .collect(Collectors.toList());
-
-    response.setWidgetResponseList(widgets);
-
-    log.info(
-            "Successfully retrieved dashboard data for dashboardId: {} with {} widgets",
-            dashboardId, widgets.size());
-
-    return response;
+    this.numberOfDays = numberOfDays;
 }
 ```
