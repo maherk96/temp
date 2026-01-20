@@ -1,3 +1,69 @@
+You are working in a Spring Boot (Java) backend with JPA/Hibernate and an existing Oracle database schema (QAPORTAL). 
+I already store test execution/reporting data (tests, test runs, launches, tags, etc.). 
+
+Goal:
+Implement support for Coverage Specifications using the following input DTO:
+CoverageSpecUpsertRequest (schemaVersion, spec, pillars -> capabilities -> coverageItems, evidencePolicy, automationPolicy).
+This data must be stored in the database and later used for coverage reporting and linking tests to coverage items.
+
+Critical requirements:
+1) FIRST: analyze my current database schema (I will paste my existing DDL). 
+   - Identify whether any suitable tables already exist for storing coverage specs, items, pillars, etc.
+   - Reuse existing tables when appropriate.
+   - Only create new tables/columns where necessary.
+
+2) DB design:
+   - Propose the minimal set of new tables needed to store:
+     - Coverage Spec (draft/published/archived, version, schemaVersion, appKey, name, description, created/updated)
+     - Pillars
+     - Capabilities
+     - Coverage Items (atomic units)
+     - Evidence Policy (allowed evidence types, manual rules, automation rules)
+     - Automation Policy (MUST_AUTOMATE/SHOULD_AUTOMATE/MANUAL_OK, reason)
+   - Include:
+     - primary keys
+     - foreign keys
+     - unique constraints (e.g., coverageItemId unique per application/spec)
+     - indexes for reporting queries (by appKey, pillarKey, coverageItemId, status)
+     - a versioning strategy (published specs immutable; new version created on changes)
+   - Provide the full Oracle DDL for any new tables, including constraints and indexes.
+
+3) Service implementation:
+   - Create a Spring service class (e.g., CoverageSpecService) with a method like:
+       upsertCoverageSpec(CoverageSpecUpsertRequest request, String currentUser)
+   - The service must:
+     - Validate the request (schemaVersion supported, uniqueness of IDs, evidence policy consistency)
+     - Upsert in DRAFT mode:
+        - if spec exists in DRAFT for the app+name (or specId provided), update it
+        - otherwise create a new spec
+     - Persist the full nested structure:
+        - pillars -> capabilities -> coverage items
+        - remove or mark stale records that were deleted in the new request (use a safe approach: soft-delete or diff-based update)
+     - Store default policies at spec-level and allow item-level overrides
+     - Be transactional and safe for concurrent updates
+     - Return a response DTO summarizing created/updated counts and the spec version/id
+
+4) Do NOT generate controllers yet.
+5) Do NOT generate code for coverage reporting or manual sessions yet.
+6) Keep the design compatible with my existing test reporting system, since later we will add a link table to map coverage items to existing testIds (JUnit/Cucumber).
+
+What I will provide:
+- My existing Oracle DDL (paste it and use it as the source of truth)
+- The CoverageSpecUpsertRequest DTO already exists in my codebase
+
+What you must output:
+A) A short analysis of the current schema showing what can be reused and what is missing
+B) The proposed new/updated Oracle DDL (tables + constraints + indexes)
+C) The Spring service class implementation (entities + repositories only if needed, but focus on the service logic)
+D) Any validation rules you recommend enforcing at the service layer
+E) A brief note on how you would handle spec publishing/versioning (no code, just clear rules)
+
+Important:
+- Assume Oracle DB
+- Assume JPA + Spring @Transactional
+- Prefer DTOs instead of returning entities
+- Avoid accessing repositories directly from controllers; service layer owns operations
+
 ```java
 
 package com.yourcompany.coverage.dto;
@@ -13,207 +79,45 @@ import java.util.List;
 
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class CoverageSpecUpsertRequest {
+public class CoverageItemTestLinkRequest {
 
-  @NotNull
-  private Integer schemaVersion;
-
-  @NotNull
-  @Valid
-  private Spec spec;
+  @NotBlank
+  private String coverageItemId;
 
   @NotEmpty
   @Valid
-  private List<Pillar> pillars;
-
-  /* =========================
-     Spec
-     ========================= */
+  private List<TestLink> links;
 
   @Data
   @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class Spec {
-
-    @NotBlank
-    private String applicationKey;
-
-    @NotBlank
-    private String name;
+  public static class TestLink {
 
     @NotNull
-    private SpecStatus status; // DRAFT / PUBLISHED / ARCHIVED
-
-    private String description;
-
-    @Valid
-    private DefaultPolicies defaultPolicies;
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class DefaultPolicies {
-    /** If an item allows MANUAL but doesn't specify expiryDays, use this default. */
-    private Integer defaultManualEvidenceExpiryDays;
-
-    /** If an item requires AUTOMATED but doesn't specify evidenceWindowDays, use this default. */
-    private Integer defaultEvidenceWindowDaysForAutomation;
-  }
-
-  public enum SpecStatus {
-    DRAFT, PUBLISHED, ARCHIVED
-  }
-
-  /* =========================
-     Pillar / Capability / Item
-     ========================= */
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class Pillar {
-
-    @NotBlank
-    private String pillarKey; // e.g. ORD, CTRL
-
-    @NotBlank
-    private String name;
-
-    private String description;
-
-    @NotEmpty
-    @Valid
-    private List<Capability> capabilities;
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class Capability {
-
-    @NotBlank
-    private String capabilityKey; // e.g. ORD-CREATE
-
-    @NotBlank
-    private String name;
-
-    private String description;
-
-    @NotEmpty
-    @Valid
-    private List<CoverageItem> coverageItems;
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class CoverageItem {
-
-    @NotBlank
-    private String coverageItemId; // stable ID like ORD-CANCEL-001
-
-    @NotBlank
-    private String title;
-
-    private String description;
+    private Long testId;
 
     @NotNull
-    private RiskLevel risk;
+    private TestType testType;
 
-    private List<String> tags;
+    // JUnit identity
+    private String className;
+    private String methodName;
 
-    @Valid
-    private Scope scope;
-
-    private List<String> acceptanceCriteria;
-
-    @NotNull
-    @Valid
-    private EvidencePolicy evidencePolicy;
-
-    @NotNull
-    @Valid
-    private AutomationPolicy automationPolicy;
-  }
-
-  public enum RiskLevel {
-    LOW, MEDIUM, HIGH
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class Scope {
-    private List<String> environments; // e.g. UAT, PROD-LIKE
-    private List<String> components;   // e.g. OrderService
-  }
-
-  /* =========================
-     Evidence
-     ========================= */
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class EvidencePolicy {
-
-    @NotEmpty
-    private List<EvidenceType> allowedEvidence;
+    // Cucumber identity
+    private String featureName;
+    private String scenarioName;
 
     /**
-     * Usually equals allowedEvidence, but can be stricter.
-     * Example: allowed [AUTO, MANUAL], requireAtLeastOneOf [AUTO]
+     * Optional: store how this link was created:
+     * UI_MANUAL, TAGGED, IMPORTED, INFERRED
      */
-    @NotEmpty
-    private List<EvidenceType> requireAtLeastOneOf;
-
-    @Valid
-    private ManualRules manualRules;
-
-    @Valid
-    private AutomationRules automationRules;
+    private String linkType;
   }
 
-  public enum EvidenceType {
-    AUTOMATED, MANUAL
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class ManualRules {
-    /** Evidence expires after N days (attestation must be renewed). */
-    private Integer expiryDays;
-
-    private Boolean requiresApproval;
-
-    /** e.g. QA_APPROVER, RISK_APPROVER, COMPLIANCE_OFFICER */
-    private String requiredRole;
-
-    private Boolean requiresAttachment;
-  }
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class AutomationRules {
-    /** Automated evidence must have a passing run within this many days. */
-    private Integer evidenceWindowDays;
-
-    /** If true, latest evidence must be a PASS (not just "ran"). */
-    private Boolean requirePass;
-  }
-
-  /* =========================
-     Automation expectation
-     ========================= */
-
-  @Data
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public static class AutomationPolicy {
-
-    @NotNull
-    private AutomationExpectation expectation; // MUST / SHOULD / MANUAL_OK
-
-    private String reason;
-  }
-
-  public enum AutomationExpectation {
-    MUST_AUTOMATE,
-    SHOULD_AUTOMATE,
-    MANUAL_OK
+  public enum TestType {
+    JUNIT_METHOD,
+    JUNIT_CLASS,
+    CUCUMBER_SCENARIO,
+    CUCUMBER_FEATURE
   }
 }
 
