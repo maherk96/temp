@@ -1,68 +1,220 @@
-Design a YAML-based Test Coverage Specification and explain how it should work end-to-end.
+```java
 
-⸻
+package com.yourcompany.coverage.dto;
 
-Requirements
+import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
 
-1. Test Basis & Structure
-	•	Coverage must be defined per Application → Pillar → Capability → Coverage Item
-	•	A Coverage Item is the atomic unit used for coverage calculation
-	•	Coverage Items must be uniquely identifiable and versionable
-	•	YAML should be suitable for storage in Git and reviewed via PRs
+import java.util.List;
 
-2. Evidence Model
-Coverage Items must support multiple forms of evidence:
-	•	Automated evidence
-	•	Linked to existing tests in the database
-	•	Must support manual mapping using:
-	•	DB test IDs (e.g. testCaseId)
-	•	Stable test identifiers (e.g. class + method FQN)
-	•	Manual evidence
-	•	Represented via attestations or test sessions stored in DB
-	•	Must support expiry (e.g. “valid for 30 days”)
-	•	Must be auditable (who executed, when, environment, attachments)
+@Data
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class CoverageSpecUpsertRequest {
 
-The YAML must define what evidence is acceptable for each Coverage Item (automated, manual, or both).
+  @NotNull
+  private Integer schemaVersion;
 
-3. Automation Expectations
-	•	Each Coverage Item must declare an automation expectation, e.g.:
-	•	MUST_AUTOMATE
-	•	SHOULD_AUTOMATE
-	•	MANUAL_OK
-	•	This is used to:
-	•	Compute automation coverage
-	•	Highlight automation gaps
-	•	Prevent penalising items that are intentionally manual
+  @NotNull
+  @Valid
+  private Spec spec;
 
-4. Manual Testing Considerations
-	•	The system must NOT rely on ad-hoc prompts like “was this tested?”
-	•	Manual testing must be recorded as structured, expirable evidence
-	•	YAML should define the rules for manual evidence (expiry, required role, required attachments)
+  @NotEmpty
+  @Valid
+  private List<Pillar> pillars;
 
-5. Reporting Goals
-The design must enable generation of:
-	•	% test coverage against the test basis
-	•	% automation coverage of that test basis
-	•	Identification of coverage gaps
-	•	Identification of automation gaps
-	•	Confidence level of reported coverage (based on evidence quality & freshness)
+  /* =========================
+     Spec
+     ========================= */
 
-6. Practical Constraints
-	•	Assume many legacy tests will never be updated with tags/annotations
-	•	The design must provide immediate value using existing DB test identifiers
-	•	Avoid fragile or high-maintenance solutions
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class Spec {
 
-⸻
+    @NotBlank
+    private String applicationKey;
 
-Expected Output
-	1.	A YAML schema example showing:
-	•	Application, pillar, capability, coverage items
-	•	Evidence policies
-	•	Manual vs automated rules
-	•	Explicit mapping to existing DB test IDs
-	2.	An explanation of:
-	•	How automated and manual evidence are resolved
-	•	How coverage is calculated
-	•	How automation gaps are identified
-	3.	Recommended best practices to avoid data drift and stale mappings
+    @NotBlank
+    private String name;
 
+    @NotNull
+    private SpecStatus status; // DRAFT / PUBLISHED / ARCHIVED
+
+    private String description;
+
+    @Valid
+    private DefaultPolicies defaultPolicies;
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class DefaultPolicies {
+    /** If an item allows MANUAL but doesn't specify expiryDays, use this default. */
+    private Integer defaultManualEvidenceExpiryDays;
+
+    /** If an item requires AUTOMATED but doesn't specify evidenceWindowDays, use this default. */
+    private Integer defaultEvidenceWindowDaysForAutomation;
+  }
+
+  public enum SpecStatus {
+    DRAFT, PUBLISHED, ARCHIVED
+  }
+
+  /* =========================
+     Pillar / Capability / Item
+     ========================= */
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class Pillar {
+
+    @NotBlank
+    private String pillarKey; // e.g. ORD, CTRL
+
+    @NotBlank
+    private String name;
+
+    private String description;
+
+    @NotEmpty
+    @Valid
+    private List<Capability> capabilities;
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class Capability {
+
+    @NotBlank
+    private String capabilityKey; // e.g. ORD-CREATE
+
+    @NotBlank
+    private String name;
+
+    private String description;
+
+    @NotEmpty
+    @Valid
+    private List<CoverageItem> coverageItems;
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class CoverageItem {
+
+    @NotBlank
+    private String coverageItemId; // stable ID like ORD-CANCEL-001
+
+    @NotBlank
+    private String title;
+
+    private String description;
+
+    @NotNull
+    private RiskLevel risk;
+
+    private List<String> tags;
+
+    @Valid
+    private Scope scope;
+
+    private List<String> acceptanceCriteria;
+
+    @NotNull
+    @Valid
+    private EvidencePolicy evidencePolicy;
+
+    @NotNull
+    @Valid
+    private AutomationPolicy automationPolicy;
+  }
+
+  public enum RiskLevel {
+    LOW, MEDIUM, HIGH
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class Scope {
+    private List<String> environments; // e.g. UAT, PROD-LIKE
+    private List<String> components;   // e.g. OrderService
+  }
+
+  /* =========================
+     Evidence
+     ========================= */
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class EvidencePolicy {
+
+    @NotEmpty
+    private List<EvidenceType> allowedEvidence;
+
+    /**
+     * Usually equals allowedEvidence, but can be stricter.
+     * Example: allowed [AUTO, MANUAL], requireAtLeastOneOf [AUTO]
+     */
+    @NotEmpty
+    private List<EvidenceType> requireAtLeastOneOf;
+
+    @Valid
+    private ManualRules manualRules;
+
+    @Valid
+    private AutomationRules automationRules;
+  }
+
+  public enum EvidenceType {
+    AUTOMATED, MANUAL
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class ManualRules {
+    /** Evidence expires after N days (attestation must be renewed). */
+    private Integer expiryDays;
+
+    private Boolean requiresApproval;
+
+    /** e.g. QA_APPROVER, RISK_APPROVER, COMPLIANCE_OFFICER */
+    private String requiredRole;
+
+    private Boolean requiresAttachment;
+  }
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class AutomationRules {
+    /** Automated evidence must have a passing run within this many days. */
+    private Integer evidenceWindowDays;
+
+    /** If true, latest evidence must be a PASS (not just "ran"). */
+    private Boolean requirePass;
+  }
+
+  /* =========================
+     Automation expectation
+     ========================= */
+
+  @Data
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public static class AutomationPolicy {
+
+    @NotNull
+    private AutomationExpectation expectation; // MUST / SHOULD / MANUAL_OK
+
+    private String reason;
+  }
+
+  public enum AutomationExpectation {
+    MUST_AUTOMATE,
+    SHOULD_AUTOMATE,
+    MANUAL_OK
+  }
+}
+
+```
