@@ -1,4 +1,213 @@
 ```java
+
+package com.mk.fx.qa.qap.logging.log4j2;
+
+import com.mk.fx.qa.qap.logging.core.QAPLogCaptureConfig;
+import com.mk.fx.qa.qap.logging.core.QAPLogCapturer;
+import com.mk.fx.qa.qap.logging.core.QAPLogEntry;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Log4j2 implementation of QAPLogCapturer. Captures logs from Log4j2 by attaching a custom appender
+ * to all configured loggers.
+ *
+ * <p>This implementation attaches to ALL loggers (not just root) to ensure logs from loggers with
+ * {@code additivity="false"} are also captured.
+ *
+ * <p>Thread-safe and designed for parallel test execution.
+ */
+public class Log4j2Capturer implements QAPLogCapturer {
+
+  private static final org.slf4j.Logger log = LoggerFactory.getLogger(Log4j2Capturer.class);
+  private static final String APPENDER_NAME = "QAPLog4j2Appender";
+
+  private volatile QAPLog4j2Appender appender;
+  private volatile boolean initialized = false;
+  
+  // Track loggers we've attached to for proper cleanup
+  private final List<Logger> attachedLoggers = Collections.synchronizedList(new ArrayList<>());
+
+  @Override
+  public void startCapture(String testId, QAPLogCaptureConfig config) {
+    Objects.requireNonNull(testId, "testId cannot be null");
+    Objects.requireNonNull(config, "config cannot be null");
+
+    if (!config.isEnabled()) {
+      log.debug("Log capture disabled for test: {}", testId);
+      return;
+    }
+
+    ensureInitialized();
+
+    if (appender != null) {
+      appender.startCapture(testId, config);
+      log.debug("Started Log4j2 capture for test: {}", testId);
+    } else {
+      log.warn("Failed to start capture - appender not initialized");
+    }
+  }
+
+  @Override
+  public List<QAPLogEntry> stopCapture(String testId) {
+    Objects.requireNonNull(testId, "testId cannot be null");
+
+    if (appender == null) {
+      log.warn("Appender not initialized, returning empty log list for test: {}", testId);
+      return Collections.emptyList();
+    }
+
+    List<QAPLogEntry> logs = appender.stopCapture(testId);
+    log.debug("Stopped Log4j2 capture for test: {} ({} entries)", testId, logs.size());
+    return logs;
+  }
+
+  @Override
+  public String getFrameworkName() {
+    return "Log4j2";
+  }
+
+  @Override
+  public boolean isAvailable() {
+    try {
+      // Check if Log4j2 classes are on the classpath
+      Class.forName("org.apache.logging.log4j.core.LoggerContext");
+      Class.forName("org.apache.logging.log4j.core.appender.AbstractAppender");
+
+      // Try to get the LoggerContext
+      org.apache.logging.log4j.core.LoggerContext context =
+          (org.apache.logging.log4j.core.LoggerContext) LogManager.getContext(false);
+      if (context == null) {
+        log.debug("Log4j2 LoggerContext is null");
+        return false;
+      }
+
+      log.debug("Log4j2 is available and ready");
+      return true;
+    } catch (ClassNotFoundException e) {
+      log.debug("Log4j2 classes not found on classpath: {}", e.getMessage());
+      return false;
+    } catch (Exception e) {
+      log.warn("Error checking Log4j2 availability: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  @Override
+  public int getPriority() {
+    return 100; // Higher priority than Logback (default 0)
+  }
+
+  @Override
+  public void shutdown() {
+    if (appender != null) {
+      try {
+        appender.cleanupThreadLocals();
+
+        // Remove appender from all loggers we attached to
+        for (Logger logger : attachedLoggers) {
+          try {
+            logger.removeAppender(appender);
+          } catch (Exception e) {
+            log.debug("Error removing appender from logger {}: {}", logger.getName(), e.getMessage());
+          }
+        }
+        attachedLoggers.clear();
+        
+        appender.stop();
+        log.info("QAP Log4j2 appender removed from {} loggers and stopped", attachedLoggers.size());
+      } catch (Exception e) {
+        log.warn("Error during Log4j2 capturer shutdown", e);
+      } finally {
+        appender = null;
+        initialized = false;
+      }
+    }
+  }
+
+  /**
+   * Initializes the appender and attaches it to ALL configured loggers. This ensures logs from
+   * loggers with {@code additivity="false"} are captured.
+   *
+   * <p>This is done lazily on the first capture request.
+   */
+  private synchronized void ensureInitialized() {
+    if (initialized) {
+      return;
+    }
+
+    try {
+      LoggerContext context = (LoggerContext) LogManager.getContext(false);
+
+      // Create and start the appender
+      appender = QAPLog4j2Appender.createAppender(APPENDER_NAME, null, true);
+      if (appender == null) {
+        throw new IllegalStateException("Failed to create QAPLog4j2Appender");
+      }
+      appender.start();
+
+      // Attach to root logger
+      Logger rootLogger = context.getRootLogger();
+      attachAppenderToLogger(rootLogger);
+
+      // Attach to ALL configured loggers to catch those with additivity=false
+      Collection<Logger> loggers = context.getLoggers();
+      int nonAdditiveCount = 0;
+      for (Logger logger : loggers) {
+        if (!logger.isAdditive()) {
+          attachAppenderToLogger(logger);
+          nonAdditiveCount++;
+        }
+      }
+
+      initialized = true;
+      log.info(
+          "QAP Log4j2 appender attached to root logger and {} non-additive logger(s)",
+          nonAdditiveCount);
+
+    } catch (Exception e) {
+      log.error("Failed to initialize Log4j2 capturer", e);
+      throw new RuntimeException("Failed to initialize Log4j2 capturer", e);
+    }
+  }
+
+  /**
+   * Attaches the appender to a logger if not already attached.
+   *
+   * @param logger the logger to attach to
+   */
+  private void attachAppenderToLogger(Logger logger) {
+    if (!logger.getAppenders().containsKey(APPENDER_NAME)) {
+      logger.addAppender(appender);
+      attachedLoggers.add(logger);
+      log.debug("Attached QAP appender to logger: {}", logger.getName());
+    }
+  }
+
+  /**
+   * For testing: checks if the appender has any active captures.
+   *
+   * @return true if at least one test is actively capturing logs
+   */
+  boolean hasActiveCaptures() {
+    return appender != null && appender.hasActiveCaptures();
+  }
+}
+
+
+
+
+
+
+
+
 package com.mk.fx.qa.qap.logging.log4j2;
 
 import com.mk.fx.qa.qap.logging.core.QAPLogCaptureConfig;
@@ -7,6 +216,7 @@ import com.mk.fx.qa.qap.logging.core.QAPLogLevel;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.logging.log4j.core.Appender;
 import org.apache.logging.log4j.core.Core;
 import org.apache.logging.log4j.core.Filter;
@@ -39,11 +249,22 @@ public class QAPLog4j2Appender extends AbstractAppender {
 
   private static final Logger log = LoggerFactory.getLogger(QAPLog4j2Appender.class);
 
-  // Global log buffers keyed by testId - captures logs from ALL threads
-  private final Map<String, List<QAPLogEntry>> captureBuffers = new ConcurrentHashMap<>();
+  /**
+   * Holds the capture state for a single test. Using a dedicated class ensures atomic access to
+   * both the log buffer and the "max entries reached" flag.
+   */
+  private static class CaptureState {
+    final CopyOnWriteArrayList<QAPLogEntry> logs = new CopyOnWriteArrayList<>();
+    final QAPLogCaptureConfig config;
+    volatile boolean maxEntriesWarningLogged = false;
 
-  // Global registry of all active test captures (testId -> config)
-  private final Map<String, QAPLogCaptureConfig> activeCaptures = new ConcurrentHashMap<>();
+    CaptureState(QAPLogCaptureConfig config) {
+      this.config = config;
+    }
+  }
+
+  // Global capture states keyed by testId - captures logs from ALL threads
+  private final ConcurrentHashMap<String, CaptureState> captureStates = new ConcurrentHashMap<>();
 
   protected QAPLog4j2Appender(String name, Filter filter, boolean ignoreExceptions) {
     super(name, filter, null, ignoreExceptions, Property.EMPTY_ARRAY);
@@ -78,8 +299,7 @@ public class QAPLog4j2Appender extends AbstractAppender {
       return;
     }
 
-    captureBuffers.put(testId, Collections.synchronizedList(new ArrayList<>()));
-    activeCaptures.put(testId, config);
+    captureStates.put(testId, new CaptureState(config));
     log.debug("Started log capture for test: {}", testId);
   }
 
@@ -93,33 +313,34 @@ public class QAPLog4j2Appender extends AbstractAppender {
   public List<QAPLogEntry> stopCapture(String testId) {
     Objects.requireNonNull(testId, "testId cannot be null");
 
-    activeCaptures.remove(testId);
-    List<QAPLogEntry> logs = captureBuffers.remove(testId);
+    CaptureState state = captureStates.remove(testId);
 
-    if (logs == null) {
+    if (state == null) {
       log.warn("No active capture found for test: {}", testId);
       return Collections.emptyList();
     }
 
-    log.debug("Stopped log capture for test: {} ({} entries)", testId, logs.size());
-    return logs;
+    // Return a defensive copy; CopyOnWriteArrayList's iterator is already a snapshot
+    List<QAPLogEntry> result = new ArrayList<>(state.logs);
+    log.debug("Stopped log capture for test: {} ({} entries)", testId, result.size());
+    return result;
   }
 
   @Override
   public void append(LogEvent event) {
-    if (activeCaptures.isEmpty()) {
+    if (captureStates.isEmpty()) {
       return; // No active captures, skip processing
     }
 
     try {
-      // Try to capture for all active tests
-      for (Map.Entry<String, QAPLogCaptureConfig> entry : activeCaptures.entrySet()) {
+      // Snapshot the entry set to avoid ConcurrentModificationException
+      for (Map.Entry<String, CaptureState> entry : captureStates.entrySet()) {
         String testId = entry.getKey();
-        QAPLogCaptureConfig config = entry.getValue();
+        CaptureState state = entry.getValue();
 
-        if (shouldCapture(event, config)) {
-          QAPLogEntry logEntry = convertLogEvent(event, config);
-          addLogEntry(testId, logEntry, config);
+        if (shouldCapture(event, state.config)) {
+          QAPLogEntry logEntry = convertLogEvent(event, state.config);
+          addLogEntry(testId, logEntry, state);
         }
       }
     } catch (Exception e) {
@@ -271,19 +492,24 @@ public class QAPLog4j2Appender extends AbstractAppender {
   /**
    * Adds a log entry to the buffer for a specific test. Safe to call from any thread.
    *
+   * <p>Uses CopyOnWriteArrayList for thread-safe add operations without explicit locking.
+   * The size check is intentionally racy (may slightly exceed max) to avoid synchronization
+   * overhead in the hot path - this is acceptable since maxEntriesPerTest is a soft limit.
+   *
    * @param testId test identifier
    * @param logEntry log entry to add
-   * @param config capture configuration
+   * @param state capture state containing the buffer and config
    */
-  private void addLogEntry(String testId, QAPLogEntry logEntry, QAPLogCaptureConfig config) {
-    List<QAPLogEntry> logs = captureBuffers.get(testId);
-    if (logs != null) {
-      if (logs.size() < config.getMaxEntriesPerTest()) {
-        logs.add(logEntry);
-      } else if (logs.size() == config.getMaxEntriesPerTest()) {
-        log.warn(
-            "Max log entries ({}) reached for test: {}", config.getMaxEntriesPerTest(), testId);
-      }
+  private void addLogEntry(String testId, QAPLogEntry logEntry, CaptureState state) {
+    int currentSize = state.logs.size();
+    int maxEntries = state.config.getMaxEntriesPerTest();
+
+    if (currentSize < maxEntries) {
+      state.logs.add(logEntry);
+    } else if (!state.maxEntriesWarningLogged) {
+      // Use flag to log warning only once per test
+      state.maxEntriesWarningLogged = true;
+      log.warn("Max log entries ({}) reached for test: {}", maxEntries, testId);
     }
   }
 
@@ -293,13 +519,12 @@ public class QAPLog4j2Appender extends AbstractAppender {
    * @return true if at least one test is actively capturing logs
    */
   public boolean hasActiveCaptures() {
-    return !activeCaptures.isEmpty();
+    return !captureStates.isEmpty();
   }
 
   /** Clears all capture buffers and active captures. Should be called when the appender is stopped. */
   public void cleanupThreadLocals() {
-    captureBuffers.clear();
-    activeCaptures.clear();
+    captureStates.clear();
     log.debug("Cleaned up capture buffers");
   }
 }
