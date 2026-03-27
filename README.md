@@ -1,3 +1,4 @@
+```yaml
 plugins {
     id 'java-library'
     id "com.citi.171981.java.spring-boot"
@@ -153,3 +154,4 @@ tasks.withType(JavaCompile) {
 test {
     useJUnitPlatform()
 }
+```
