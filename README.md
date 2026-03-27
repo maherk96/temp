@@ -1,13 +1,9 @@
+```yaml
+// Liquibase runtime dependencies (only the extras needed)
 liquibaseRuntime 'org.liquibase:liquibase-core:4.26.0'
 liquibaseRuntime 'org.liquibase.ext:liquibase-hibernate6:4.26.0'
-liquibaseRuntime 'org.springframework.boot:spring-boot-starter-data-jpa:3.2.0'
-liquibaseRuntime 'org.springframework:spring-core:6.1.2'
-liquibaseRuntime 'org.springframework:spring-context:6.1.2'
-liquibaseRuntime 'org.springframework:spring-beans:6.1.2'
-liquibaseRuntime 'org.springframework.data:spring-data-jpa:3.2.0'
-liquibaseRuntime 'org.hibernate.orm:hibernate-core:6.4.1.Final'
-liquibaseRuntime 'jakarta.persistence:jakarta.persistence-api:3.1.0'
-liquibaseRuntime "com.oracle.database.jdbc:ojdbc8:${jdbcVersion}"
 liquibaseRuntime 'info.picocli:picocli:4.7.5'
 liquibaseRuntime 'javax.xml.bind:jaxb-api:2.3.1'
 liquibaseRuntime sourceSets.main.output
+
+```
